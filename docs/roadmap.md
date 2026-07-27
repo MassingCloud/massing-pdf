@@ -91,19 +91,40 @@ the viewer is already instantiable more than once on a page.
 
 ## Testing
 
-193 unit tests cover geometry, units, the store, interchange, spec parsing and reference matching,
-text splitting, search matching, migration planning, OCR coordinate mapping, and the ZIP writer
-(verified by reading its own central directory back, not by trusting the bytes).
+Two suites, split by what each can actually reach.
 
-Not covered by unit tests, because they need a browser — `happy-dom` has no layout, and pdf.js drives
-its render loop from `requestAnimationFrame`, which does not fire in a headless or hidden page:
+**193 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
+formatting, store mutation/undo/merge semantics, every interchange round trip, spec parsing and
+reference matching, text splitting, search matching, migration planning, OCR coordinate mapping,
+and the ZIP writer — the last verified by reading its own central directory back rather than by
+trusting the bytes.
 
-- The pointer gesture loop (drag, poly, vertex edit).
-- Tiled rasterisation at high zoom.
-- The compare/diff pipeline end to end, and therefore OCR rasterisation.
-- `IndexedDbAdapter` and `OfflineAdapter` queue drain and retry.
+**49 browser tests** (`npm run test:e2e`, Playwright + Chromium) cover what unit tests structurally
+cannot. `happy-dom` has no layout, and pdf.js schedules its render continuation on
+`requestAnimationFrame`, which never fires without a compositor — so in a headless DOM every render
+simply hangs. These assert on real pixels and real pointer events:
 
-These are verified by driving the demo, whose generated sample is a deterministic fixture: an ARCH D
-plan at a known scale with a printed dimension, a details sheet, and a real CSI spec section that the
-plan's keyed notes call out by number. A Playwright suite over that fixture would close this
-properly and is the highest-value remaining test work.
+| Suite | Covers |
+|---|---|
+| `render.spec.ts` | rasterisation, tiling above the per-canvas budget, tile eviction, thumbnails, fit modes, rotation, zoom-about-cursor |
+| `gestures.spec.ts` | drag / poly / freehand / click tools, selection, move, vertex editing, undo coarseness, shortcuts, measurement, text selection |
+| `compare.spec.ts` | rasterise → align → difference → cluster → cloud, and migration planning over a real diff |
+| `persistence.spec.ts` | IndexedDB round-trip and isolation, survival across a reload, and the offline queue holding a markup through a network failure and draining on retry |
+
+The fixture is the demo's generated sample, which makes assertions checkable against the drawing
+rather than against the implementation: the plan is drawn at `1/8" = 1'-0"` with a `144'-0"` overall
+dimension printed on it, so the measurement test drags that span with real mouse events and expects
+the number on the sheet.
+
+Both suites run in CI. The browser job pins Node 22 — Playwright registers an ESM loader that needs
+Node 20.6+, and 22 avoids the edge entirely.
+
+### Still uncovered
+
+- **OCR rasterisation end to end.** The coordinate mapping and the kernel fallback are tested; the
+  rasterise-and-recognise round trip needs a provider, and bundling one purely for tests would
+  contradict the reason it is an interface.
+- **Touch and pen input.** The gesture tests drive a mouse. Field use is largely touch, and pointer
+  events differ enough there to be worth its own pass.
+- **Cross-browser.** Chromium only. Firefox and WebKit differ in canvas limits and in text-layer
+  selection behaviour, both of which this engine leans on.

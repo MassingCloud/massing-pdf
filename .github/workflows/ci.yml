@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   check:
+    name: typecheck · lint · unit · build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -33,7 +34,7 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
+      - name: Unit tests
         run: npm test
 
       - name: Build library
@@ -48,4 +49,36 @@ jobs:
         with:
           name: demo
           path: dist-demo
+          retention-days: 7
+
+  e2e:
+    name: browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Playwright registers an ESM loader that needs Node 20.6+; 22 avoids the edge entirely.
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Covers what unit tests structurally cannot: rasterisation, the pointer gesture loop, the
+      # compare pipeline and the IndexedDB adapters all need a browser that actually composites.
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
           retention-days: 7

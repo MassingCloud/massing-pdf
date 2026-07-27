@@ -293,7 +293,9 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 npm install
 npm run dev        # demo at :5173
 npm test           # 193 unit tests
-npm run check      # typecheck + lint + test
+npm run test:e2e   # 49 browser tests (Playwright + Chromium)
+npm run check      # typecheck + lint + unit tests
+npm run check:all  # the above, plus the browser suite
 npm run build      # library → dist/
 npm run demo:build # standalone demo → dist-demo/
 ```
@@ -304,9 +306,14 @@ worker, since two versions in one page fail in confusing ways.
 
 ## Status
 
-Every functional area of the product spec is implemented. 193 unit tests cover the parts where
-correctness is load-bearing — measurement, the store, interchange, spec parsing, migration planning,
-the ZIP writer — and the rest is verified by driving the demo against a deterministic sample sheet.
+Every functional area of the product spec is implemented, and both halves of the test pyramid are in
+place: **193 unit tests** for the pure logic, and **49 Playwright tests** for everything that needs a
+real browser — rasterisation, the pointer gesture loop, the compare pipeline, and the IndexedDB
+adapters, none of which a headless DOM can reach.
+
+The fixture makes the assertions checkable against the drawing rather than the implementation: the
+sample plan is drawn at `1/8" = 1'-0"` with a `144'-0"` dimension printed on it, so the measurement
+test drags that span with real mouse events and expects the number on the sheet.
 
 [docs/roadmap.md](docs/roadmap.md) records what is deliberately *not* built and why: ICDD packaging
 and the 4D/5D bridges wait on Massing's own coordination model, and BCF viewpoints are omitted

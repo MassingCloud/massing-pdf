@@ -1,7 +1,7 @@
 {
   "name": "@massingcloud/pdf-viewer",
   "version": "0.1.0",
-  "description": "Framework-agnostic PDF drawing viewer, markup, measurement and pinning engine for AEC — plugin kernel, structured annotations, XFDF/BCF interchange. Extracted from Massing, built to be reintegrated.",
+  "description": "Framework-agnostic PDF drawing viewer, markup, measurement and pinning engine for AEC \u2014 plugin kernel, structured annotations, XFDF/BCF interchange. Extracted from Massing, built to be reintegrated.",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -43,15 +43,18 @@
     "*.css"
   ],
   "scripts": {
-    "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
-    "preview": "vite preview",
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "check:all": "npm run check && npm run test:e2e",
     "demo:build": "vite build --mode demo",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src demo",
+    "dev": "vite",
+    "lint": "eslint src demo e2e",
+    "preview": "vite preview",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "peerDependencies": {
     "pdf-lib": "^1.17.1",
@@ -64,6 +67,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.0",
     "@types/node": "^22.10.2",
     "eslint": "9.39.5",
     "happy-dom": "^15.11.7",

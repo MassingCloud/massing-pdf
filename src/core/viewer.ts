@@ -232,14 +232,29 @@ export class Viewer {
     if (Math.abs(next - this._zoom) < 1e-6) return;
     const s = this.el.scroll;
     // Keep the point under the cursor fixed — the difference between usable and infuriating.
-    const ax = anchor ? anchor.clientX - s.getBoundingClientRect().left : s.clientWidth / 2;
-    const ay = anchor ? anchor.clientY - s.getBoundingClientRect().top : s.clientHeight / 2;
-    const fx = (s.scrollLeft + ax) / this._zoom;
-    const fy = (s.scrollTop + ay) / this._zoom;
+    const rect = s.getBoundingClientRect();
+    const ax = anchor ? anchor.clientX - rect.left : s.clientWidth / 2;
+    const ay = anchor ? anchor.clientY - rect.top : s.clientHeight / 2;
+
+    // Measured relative to the *page*, not to the scroll content. Pages are centred in the
+    // scroller, so a page narrower than the viewport sits at an offset that changes with zoom;
+    // anchoring to scroll coordinates makes zooming in from fit-width jump sideways.
+    const layer = this.layers.get(this._page);
+    const held = layer
+      ? {
+          x: (s.scrollLeft + ax - layer.wrap.offsetLeft) / this._zoom,
+          y: (s.scrollTop + ay - layer.wrap.offsetTop) / this._zoom,
+        }
+      : null;
+
     this._zoom = next;
     await this.applyZoom();
-    s.scrollLeft = fx * next - ax;
-    s.scrollTop = fy * next - ay;
+
+    if (held && layer) {
+      // Offsets are re-read after the relayout, so the new centring is accounted for.
+      s.scrollLeft = layer.wrap.offsetLeft + held.x * next - ax;
+      s.scrollTop = layer.wrap.offsetTop + held.y * next - ay;
+    }
     this.emitView();
   }
 

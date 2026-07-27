@@ -3,7 +3,8 @@
 ```bash
 npm install
 npm run dev      # demo at :5173
-npm run check    # typecheck + lint + test — run before opening a PR
+npm run check     # typecheck + lint + unit tests — run before opening a PR
+npm run test:e2e  # browser suite; needs Node 20.6+ for Playwright's ESM loader
 ```
 
 Node 18.18+ locally; CI runs 20 and 22.
@@ -45,9 +46,13 @@ If you're changing measurement, scale or coordinate code, add a case with a valu
 hand — ideally one where symmetry or a printed dimension makes the expected answer checkable by
 inspection rather than by trusting the implementation.
 
-Rendering and gestures aren't unit-tested (`happy-dom` has no layout, and pdf.js needs
-`requestAnimationFrame`). Verify those by driving the demo in a real browser; its generated sample
-sheet is a deterministic fixture with known dimensions.
+Rendering, gestures, compare and the IndexedDB adapters live in `e2e/` and run under Playwright,
+because `happy-dom` has no layout and pdf.js schedules its renders on `requestAnimationFrame`, which
+never fires without a compositor — in a headless DOM every render just hangs.
+
+Those tests drive real mouse events and assert on real pixels. If you are adding a tool, add a
+gesture test; `e2e/helpers.ts` converts page-space coordinates to client coordinates so a test reads
+as "drag from here to there on the drawing".
 
 ## Style
 

@@ -38,14 +38,17 @@ src/plugins/   markup · measure · stamps · pins · markupList · search · sp
 src/adapters/  memory · indexeddb · rest · offline
 src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
-test/          193 unit tests
+test/          193 unit tests (vitest)
+e2e/           49 browser tests (playwright) — rendering, gestures, compare, adapters
 ```
 
 ## Commands
 ```
 npm run dev        demo at :5173
 npm test           vitest
-npm run check      typecheck + lint + test
+npm run check      typecheck + lint + unit tests
+npm run test:e2e   playwright (needs Node 20.6+; this machine's 20.3.1 is too old)
+npm run check:all  check + e2e
 npm run build      library → dist/
 npm run demo:build standalone demo → dist-demo/
 ```

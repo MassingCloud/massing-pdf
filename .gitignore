@@ -2,6 +2,9 @@ node_modules/
 dist/
 dist-demo/
 coverage/
+playwright-report/
+test-results/
+.playwright/
 *.tsbuildinfo
 .vite/
 .DS_Store

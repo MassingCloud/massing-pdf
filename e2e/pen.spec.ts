@@ -111,6 +111,29 @@ test.describe("pen", () => {
     expect(await page.evaluate(() => window.viewer.zoom)).toBeCloseTo(zoomDuringPalm, 5);
   });
 
+  test("keeps rejecting a palm that lifts after the stylus has paused", async ({ page }) => {
+    // Rejection has to be per-contact, not a time window. A reviewer who pauses mid-stroke to read
+    // the drawing stops generating pen events; if the palm's release is judged on elapsed time, it
+    // is no longer "during" a stroke and ends the one the stylus is still holding.
+    await page.evaluate(() => window.viewer.setTool("rect"));
+    const start = await toClient(page, { x: 300, y: 300 });
+
+    await pen(page, "mousePressed", start, 0.5);
+    await pen(page, "mouseMoved", { x: start.x + 40, y: start.y + 30 }, 0.5);
+    await touch(page, "touchStart", [{ x: start.x + 300, y: start.y + 200 }]);
+
+    // Stylus held still, longer than the palm window — no pen events at all.
+    await page.waitForTimeout(1100);
+
+    await touch(page, "touchEnd", []);
+    // The stroke is still open: nothing committed.
+    expect(await annotations(page)).toHaveLength(0);
+
+    await pen(page, "mouseMoved", { x: start.x + 120, y: start.y + 90 }, 0.5);
+    await pen(page, "mouseReleased", { x: start.x + 120, y: start.y + 90 });
+    await expect.poll(async () => (await annotations(page)).length, { timeout: 10_000 }).toBe(1);
+  });
+
   test("lets fingers work again once the pen is put down", async ({ page }) => {
     // Rejection is a short window, not a mode — picking up the tablet after writing should not
     // leave touch dead.

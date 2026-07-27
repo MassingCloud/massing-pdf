@@ -30,6 +30,14 @@ export interface PersistenceOptions {
   /** Load the stored set on document open. */
   autoLoad?: boolean;
   /**
+   * Ceiling for the retry backoff after a failed save, ms.
+   *
+   * A rejected batch is put back on the queue and retried, doubling from the debounce interval up
+   * to this. Without a ceiling a long outage would back off past any useful window; without the
+   * backoff a dead server is polled continuously.
+   */
+  maxRetryMs?: number;
+  /**
    * How to settle a write the server rejected because someone else edited the markup first.
    *
    * `theirs` (the default) keeps the server's copy and discards the local edit. `mine` re-applies
@@ -46,6 +54,7 @@ export interface PersistenceOptions {
 
 export function persistencePlugin(options: PersistenceOptions) {
   const wait = options.debounceMs ?? 600;
+  const maxRetry = options.maxRetryMs ?? 30_000;
 
   return definePlugin({
     id: "persistence",
@@ -67,6 +76,50 @@ export function persistencePlugin(options: PersistenceOptions) {
        * the check entirely.
        */
       const baseVersions = new Map<string, number>();
+      /** Current backoff, ms. Zero when the last save succeeded. */
+      let retryDelay = 0;
+
+      /** Everything one save attempt carried, kept so a rejection can put back what it didn't settle. */
+      interface Batch {
+        upserts: Map<string, Annotation>;
+        removals: string[];
+        meta: Mutation[];
+      }
+
+      /** How many individual changes are waiting. */
+      const pendingCount = () => pendingUpserts.size + pendingRemovals.size + pendingMeta.length;
+
+      /**
+       * Put a rejected batch back on the queue, minus the ids that were settled explicitly.
+       *
+       * A server rejects the *whole* request, so a 409 naming one markup also means the other edits
+       * in that request were never stored. Dropping them loses work silently: the markups still
+       * render locally, so nothing looks wrong until someone else opens the sheet.
+       *
+       * Anything edited again while the request was in flight is already newer than what was sent,
+       * so the pending entry always wins over the restored one.
+       */
+      const requeue = (batch: Batch, settled: ReadonlySet<string>): void => {
+        for (const [id, annot] of batch.upserts) {
+          if (settled.has(id) || pendingUpserts.has(id) || pendingRemovals.has(id)) continue;
+          pendingUpserts.set(id, annot);
+        }
+        for (const id of batch.removals) {
+          if (settled.has(id) || pendingUpserts.has(id)) continue;
+          pendingRemovals.add(id);
+        }
+        // Calibration and sheet metadata carry no version and cannot conflict, so they are always
+        // restored — keyed so a repeated failure cannot grow the queue without bound, and appended
+        // after the restored ones so a newer edit still lands last.
+        if (batch.meta.length) {
+          const keyOf = (m: Mutation) =>
+            m.op === "calibration" ? `cal:${m.page}` : m.op === "sheet" ? `sheet:${m.sheet.sheetId}` : "";
+          const merged = new Map<string, Mutation>();
+          for (const m of [...batch.meta, ...pendingMeta]) merged.set(keyOf(m), m);
+          pendingMeta.length = 0;
+          pendingMeta.push(...merged.values());
+        }
+      };
 
       const flush = async () => {
         if (!key) return;
@@ -77,8 +130,11 @@ export function persistencePlugin(options: PersistenceOptions) {
           ...[...pendingUpserts.values()].map((annot) => ({ op: "upsert" as const, annot, ...withBase(annot.id) })),
           ...pendingMeta,
         ];
-        const sent = new Map(pendingUpserts);
-        const removed = [...pendingRemovals];
+        const batch: Batch = {
+          upserts: new Map(pendingUpserts),
+          removals: [...pendingRemovals],
+          meta: [...pendingMeta],
+        };
         pendingUpserts.clear();
         pendingRemovals.clear();
         pendingMeta.length = 0;
@@ -87,12 +143,16 @@ export function persistencePlugin(options: PersistenceOptions) {
           ctx.bus.emit("sync:state", { state: "saving", pending: mutations.length });
           await options.adapter.save(key, mutations);
           // Accepted: the local copies are now the server's, and the next edit measures from here.
-          for (const [id, annot] of sent) baseVersions.set(id, annot.version);
-          for (const id of removed) baseVersions.delete(id);
-          ctx.bus.emit("sync:state", { state: "idle", pending: 0 });
+          for (const [id, annot] of batch.upserts) baseVersions.set(id, annot.version);
+          for (const id of batch.removals) baseVersions.delete(id);
+          ctx.bus.emit("sync:state", { state: "idle", pending: pendingCount() });
+          retryDelay = 0;
         } catch (e) {
-          if (e instanceof ConflictError) { await settleConflicts(e, sent); return; }
-          ctx.bus.emit("sync:state", { state: "error", pending: mutations.length, message: (e as Error).message });
+          if (e instanceof ConflictError) { await settleConflicts(e, batch); return; }
+          // Nothing was stored, so the batch goes back on the queue to be retried rather than lost.
+          requeue(batch, new Set());
+          scheduleRetry();
+          ctx.bus.emit("sync:state", { state: "error", pending: pendingCount(), message: (e as Error).message });
           ctx.bus.emit("notice", { level: "error", message: `Couldn't save markups: ${(e as Error).message}` });
         }
       };
@@ -104,47 +164,75 @@ export function persistencePlugin(options: PersistenceOptions) {
        * top is precisely the last-writer-wins behaviour the version check exists to prevent, and
        * doing it automatically would make the check theatre.
        */
-      const settleConflicts = async (error: ConflictError, sent: Map<string, Annotation>): Promise<void> => {
+      const settleConflicts = async (error: ConflictError, batch: Batch): Promise<void> => {
         const mode = options.onConflictResolve ?? "theirs";
+        const settled = new Set(error.ids);
 
         for (const raw of error.conflicts) {
-          const conflict: Conflict = { ...raw, mine: raw.mine ?? sent.get(raw.id) };
+          const conflict: Conflict = { ...raw, mine: raw.mine ?? batch.upserts.get(raw.id) };
           const theirs = conflict.theirs;
 
           let keep: Annotation | null = null;
           if (mode === "mine") keep = conflict.mine ?? null;
           else if (mode === "ask" && options.onConflict) keep = await options.onConflict(conflict);
 
-          if (!theirs) continue;
+          if (theirs) {
+            applying = true;
+            store.merge([theirs]);
+            applying = false;
+            baseVersions.set(theirs.id, theirs.version);
+          }
 
-          applying = true;
-          store.merge([theirs]);
-          applying = false;
-          baseVersions.set(theirs.id, theirs.version);
+          if (!keep) continue;
 
-          if (keep) {
+          if (theirs) {
             // Re-apply the local edit on top of the server's version, so the retry carries a base
             // the server will accept.
             store.update(theirs.id, { ...keep, version: theirs.version + 1 }, { undoable: false, bump: false });
-            const rebased = store.get(theirs.id);
-            if (rebased) pendingUpserts.set(rebased.id, rebased);
+            pendingUpserts.set(theirs.id, store.get(theirs.id) ?? keep);
+          } else {
+            // The server rejected the write without saying what it holds, so there is no version to
+            // rebase onto. Retry unconditionally rather than discard the edit: dropping the base is
+            // last-writer-wins, but that is exactly what choosing "mine" asked for, and silently
+            // throwing away a resolution the caller just made is worse.
+            baseVersions.delete(keep.id);
+            pendingUpserts.set(keep.id, store.get(keep.id) ?? keep);
           }
         }
 
+        // Whatever the server did not name was never stored either — put it back.
+        requeue(batch, settled);
+
         viewer.redraw();
-        ctx.bus.emit("sync:state", { state: "error", pending: pendingUpserts.size, message: error.message });
+        ctx.bus.emit("sync:state", { state: "error", pending: pendingCount(), message: error.message });
         ctx.bus.emit("notice", {
           level: "warn",
           message: mode === "theirs"
             ? `${error.message} — their version was kept, and your change to ${error.ids.length === 1 ? "it" : "them"} was discarded.`
             : `${error.message} — reapplied on top of their version.`,
         });
-        if (pendingUpserts.size) schedule();
+        if (pendingCount()) schedule();
       };
 
       const schedule = () => {
         clearTimeout(timer);
         timer = setTimeout(() => void flush(), wait);
+      };
+
+      /**
+       * Retry a failed batch, backing off.
+       *
+       * The requeue alone is not enough: without a retry the restored work sits in memory until the
+       * user happens to edit something else, and is lost if they close the tab first. Backing off
+       * matters as much — a server that is down stays down, and the debounce interval would mean
+       * hammering it twice a second for as long as the page is open.
+       */
+      const scheduleRetry = () => {
+        // Starts at the debounce interval and doubles: quick enough that a blip costs nothing,
+        // and past a real outage within a handful of attempts.
+        retryDelay = Math.min(retryDelay ? retryDelay * 2 : wait, maxRetry);
+        clearTimeout(timer);
+        timer = setTimeout(() => void flush(), retryDelay);
       };
 
       const queueUpsert = (annot: Annotation) => {

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Build and validate, but do not publish"
+        description: "Build and validate only. Publishing also requires running against a tag."
         type: boolean
         default: true
 
@@ -54,6 +54,15 @@ jobs:
 
       - name: Show what would ship
         run: npm pack --dry-run
+
+      # Publishing needs a tag either way — a version has to come from somewhere, and the guard
+      # above only checks it when one is present. Dispatching from a branch is therefore always a
+      # rehearsal, and says so rather than skipping silently.
+      - name: Not a tag — nothing to publish
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        run: |
+          echo "::notice::Ran from ${GITHUB_REF}, which is not a tag, so nothing was published."
+          echo "::notice::To publish, run this workflow against a version tag, or push one."
 
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/') && !inputs.dry_run

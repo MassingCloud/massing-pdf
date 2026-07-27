@@ -123,6 +123,14 @@ export class Viewer {
    * would otherwise draw across everything the pen is writing.
    */
   private lastPenAt = 0;
+  /**
+   * Touch contacts rejected as palm, by pointerId.
+   *
+   * Identity, not elapsed time: a stylus held still mid-stroke lets the window lapse, and a purely
+   * time-based test would then let the palm's `pointerup` end the stroke the pen is still drawing.
+   * A contact rejected on landing stays rejected until it lifts.
+   */
+  private rejectedTouches = new Set<number>();
   /** Pressure samples for the current freehand stroke, when the device reports them. */
   private strokePressures: number[] = [];
   private pinch: {
@@ -781,6 +789,9 @@ export class Viewer {
   }
 
   private onPointerCancel(e: PointerEvent): void {
+    // A rejected palm owns no gesture and no pinch; its cancellation must not end either, and the
+    // set would otherwise keep the id forever, since a cancelled contact never sends a pointerup.
+    if (this.rejectedTouches.delete(e.pointerId)) return;
     this.touches.delete(e.pointerId);
     this.endPinch();
     if (this.gesture?.pointerId === e.pointerId) {
@@ -809,7 +820,7 @@ export class Viewer {
       // stale finger keep zooming.
       if (this.touches.size) { this.touches.clear(); this.pinch = null; }
     } else if (e.pointerType === "touch") {
-      if (this.palmRejected()) return;
+      if (this.palmRejected()) { this.rejectedTouches.add(e.pointerId); return; }
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       // Two fingers is always a pinch, whatever tool is armed — it is how you reposition mid-markup
       // without putting the tool down.
@@ -913,8 +924,9 @@ export class Viewer {
   private onPointerUp(e: PointerEvent): void {
     if (e.pointerType === "pen") this.lastPenAt = Date.now();
     if (e.pointerType === "touch") {
-      // A palm was never tracked, so its release must not end a stroke the pen is still drawing.
-      if (!this.touches.has(e.pointerId) && this.palmRejected()) return;
+      // A palm was never tracked, so its release must not end a stroke the pen is still drawing —
+      // however long the stylus has been resting between marks.
+      if (this.rejectedTouches.delete(e.pointerId)) return;
       this.touches.delete(e.pointerId);
       const wasPinching = Boolean(this.pinch);
       this.endPinch();

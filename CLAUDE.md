@@ -39,8 +39,8 @@ src/adapters/  memory · indexeddb · rest · offline
 src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
 scripts/       check-package.mjs — manifest entry points resolve to built files
-test/          217 unit tests (vitest)
-e2e/           112 browser tests (playwright) — rendering, gestures, touch, pen, compare, adapters
+test/          226 unit tests (vitest)
+e2e/           113 browser tests (playwright) — rendering, gestures, touch, pen, compare, adapters
                runs on chromium, chromium-touch, webkit, firefox
 ```
 

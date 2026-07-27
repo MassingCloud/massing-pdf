@@ -38,7 +38,11 @@ for (const entry of entryPoints(pkg)) {
 }
 
 // `files` is what actually ships. An entry point outside it resolves here and 404s once installed.
-const shipped = new Set(pkg.files ?? []);
+// Entries may be globs (`dist/**`, `dist/*.js`), so compare on the literal prefix before any
+// wildcard rather than on the whole string — otherwise a correct manifest fails this check.
+const shipped = new Set(
+  (pkg.files ?? []).map((f) => f.replace(/^\.?\//, "").split("/")[0]).filter((seg) => !/[*?[{]/.test(seg)),
+);
 const unshipped = entryPoints(pkg).filter((entry) => {
   const top = entry.path.replace(/^\.\//, "").split("/")[0];
   return !shipped.has(top);

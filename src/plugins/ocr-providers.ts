@@ -140,7 +140,9 @@ export function azureOcrProvider(options: AzureOcrOptions): OcrProvider {
       if (res.status === 202) {
         const operation = res.headers.get("Operation-Location") ?? res.headers.get("operation-location");
         if (!operation) throw new Error("Azure accepted the tile but returned no Operation-Location to poll.");
-        payload = await pollAzure(fetchImpl, operation, headers(), pollInterval, timeout);
+        // The thunk, not a snapshot: a host minting short-lived tokens needs a fresh one per poll,
+        // and the poll can run for minutes.
+        payload = await pollAzure(fetchImpl, operation, headers, pollInterval, timeout);
       } else if (res.ok) {
         payload = (await res.json()) as AzureResult;
       } else {
@@ -155,18 +157,21 @@ export function azureOcrProvider(options: AzureOcrOptions): OcrProvider {
 async function pollAzure(
   fetchImpl: typeof fetch,
   operation: string,
-  headers: Record<string, string>,
+  headers: () => Record<string, string>,
   interval: number,
   timeout: number,
 ): Promise<AzureResult> {
   const deadline = Date.now() + timeout;
-  // The poll GET must not carry the JSON content-type of the POST.
-  const { "Content-Type": _drop, ...pollHeaders } = headers;
+  // The poll GET must not carry the JSON content-type of the POST. Matched case-insensitively,
+  // because a host's own `headers` may spell it any way.
+  const pollHeaders = (): Record<string, string> => Object.fromEntries(
+    Object.entries(headers()).filter(([k]) => k.toLowerCase() !== "content-type"),
+  );
 
   for (;;) {
     if (Date.now() > deadline) throw new Error(`Azure OCR did not finish within ${Math.round(timeout / 1000)}s.`);
     await new Promise((r) => setTimeout(r, interval));
-    const res = await fetchImpl(operation, { headers: pollHeaders });
+    const res = await fetchImpl(operation, { headers: pollHeaders() });
     if (!res.ok) throw new Error(`Azure OCR poll returned HTTP ${res.status}`);
     const body = (await res.json()) as AzureResult;
     const status = (body.status ?? "").toLowerCase();

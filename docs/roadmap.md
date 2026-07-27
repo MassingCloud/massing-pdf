@@ -98,13 +98,13 @@ the viewer is already instantiable more than once on a page.
 
 Two suites, split by what each can actually reach.
 
-**217 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
+**226 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
 formatting, store mutation/undo/merge semantics, every interchange round trip, spec parsing and
 reference matching, text splitting, search matching, migration planning, OCR coordinate mapping,
 OCR tile planning and overlap de-duplication, optimistic-concurrency wiring, and the ZIP writer — the last verified by reading
 its own central directory back rather than by trusting the bytes.
 
-**112 browser tests** (`npm run test:e2e`) cover what unit tests structurally
+**113 browser tests** (`npm run test:e2e`) cover what unit tests structurally
 cannot. `happy-dom` has no layout, and pdf.js schedules its render continuation on
 `requestAnimationFrame`, which never fires without a compositor — so in a headless DOM every render
 simply hangs. These assert on real pixels and real pointer events:
@@ -116,6 +116,7 @@ simply hangs. These assert on real pixels and real pointer events:
 | `compare.spec.ts` | rasterise → align → difference → cluster → cloud, and migration planning over a real diff |
 | `persistence.spec.ts` | IndexedDB round-trip and isolation, survival across a reload, and the offline queue holding a markup through a network failure and draining on retry |
 | `touch.spec.ts` | pinch-zoom and its clamps, anchor stability, two-finger pan not drawing, one-finger drawing, and a gesture the browser cancels mid-way |
+| `persistence` (unit) | the save queue, and what a rejected batch does to it: requeue on failure, conflict settling by policy, and a bodyless 409 |
 | `pen.spec.ts` | stylus drawing, pressure samples reaching the record, a palm rejected mid-stroke, touch recovering after the pen is put down, and a pen landing mid-pinch |
 
 Each runs on Chromium, WebKit and Firefox — canvas size limits, pointer and touch dispatch and

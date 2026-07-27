@@ -312,8 +312,8 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 ```bash
 npm install
 npm run dev        # demo at :5173
-npm test           # 217 unit tests
-npm run test:e2e   # 112 browser tests (Playwright: Chromium, WebKit, Firefox)
+npm test           # 226 unit tests
+npm run test:e2e   # 113 browser tests (Playwright: Chromium, WebKit, Firefox)
 npm run check      # typecheck + lint + unit tests
 npm run check:all  # the above, plus the browser suite
 npm run build      # library → dist/
@@ -328,7 +328,7 @@ worker, since two versions in one page fail in confusing ways.
 ## Status
 
 Every functional area of the product spec is implemented, and both halves of the test pyramid are in
-place: **217 unit tests** for the pure logic, and **112 Playwright tests** for everything that needs
+place: **226 unit tests** for the pure logic, and **113 Playwright tests** for everything that needs
 a real browser — rasterisation, the pointer gesture loop, touch and pinch, pen pressure and palm
 rejection, the compare pipeline, and the IndexedDB adapters, none of which a headless DOM can reach.
 

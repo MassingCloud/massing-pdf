@@ -27,6 +27,8 @@ export interface AttachmentOptions {
   open?: (attachment: AnnotAttachment) => void;
   accept?: string;
   side?: "left" | "right";
+  /** Offer voice capture. Needs a secure context and microphone permission. */
+  voice?: boolean;
 }
 
 const kindOf = (mime: string): NonNullable<AnnotAttachment["kind"]> =>
@@ -97,6 +99,23 @@ export function attachmentsPlugin(options: AttachmentOptions = {}) {
           if (files?.length) await attach(v, a.id, files);
         },
       });
+
+      if (options.voice !== false) {
+        ctx.registerAction({
+          id: "attachments.voice", label: "Record a voice note", icon: "🎙", group: "review",
+          enabled: (v) => v.store.selectedIds().length === 1 && voiceSupported(),
+          async run(v) {
+            const [a] = v.store.selected();
+            if (!a) return;
+            try {
+              const file = await recordVoiceNote(v);
+              if (file) await attach(v, a.id, [file]);
+            } catch (e) {
+              v.bus.emit("notice", { level: "error", message: `Recording failed: ${(e as Error).message}` });
+            }
+          },
+        });
+      }
 
       ctx.registerPanel({
         id: "attachments", title: "Attachments", side: options.side ?? "right", order: 35,
@@ -172,6 +191,16 @@ function mountPanel(
         img.src = att.url;
         img.alt = att.name;
         item.appendChild(img);
+      } else if (att.kind === "audio" && att.url) {
+        // A voice note is worth playing in place — opening it in a tab to hear ten seconds of
+        // someone describing a wall is not a workflow.
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.preload = "none";
+        audio.src = att.url;
+        audio.className = "mpdf-attach-audio";
+        audio.onclick = (e) => e.stopPropagation();
+        item.appendChild(audio);
       } else {
         const glyph = document.createElement("span");
         glyph.className = "mpdf-attach-glyph";
@@ -215,6 +244,71 @@ function mountPanel(
   ];
   render();
   return () => offs.forEach((off) => off());
+}
+
+/** `MediaRecorder` and `getUserMedia`, both of which need a secure context. */
+export const voiceSupported = (): boolean =>
+  typeof MediaRecorder !== "undefined"
+  && typeof navigator !== "undefined"
+  && Boolean(navigator.mediaDevices?.getUserMedia);
+
+/**
+ * Record until the user stops.
+ *
+ * The stop control is a plain overlay rather than a modal, because the point of a field voice note
+ * is that it takes one tap to start and one to finish while you are looking at the wall, not the
+ * screen. The microphone track is stopped explicitly on the way out — leaving it live keeps the
+ * browser's recording indicator on and is the kind of thing that gets an app uninstalled.
+ */
+export async function recordVoiceNote(v: Viewer): Promise<File | null> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const chunks: BlobPart[] = [];
+  const recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+
+  const bar = document.createElement("div");
+  bar.className = "mpdf-recording";
+  const dot = document.createElement("span");
+  dot.className = "mpdf-recording-dot";
+  const time = document.createElement("span");
+  time.className = "mpdf-recording-time";
+  time.textContent = "0:00";
+  const stop = document.createElement("button");
+  stop.type = "button";
+  stop.className = "mpdf-chest-tool";
+  stop.textContent = "Stop";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "mpdf-chest-tool";
+  cancel.textContent = "Cancel";
+  bar.append(dot, time, stop, cancel);
+  v.el.root.appendChild(bar);
+
+  const started = Date.now();
+  const tick = setInterval(() => {
+    const s = Math.floor((Date.now() - started) / 1000);
+    time.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }, 500);
+
+  const cleanup = () => {
+    clearInterval(tick);
+    bar.remove();
+    for (const track of stream.getTracks()) track.stop();
+  };
+
+  return new Promise<File | null>((resolve) => {
+    let cancelled = false;
+    recorder.onstop = () => {
+      cleanup();
+      if (cancelled || !chunks.length) { resolve(null); return; }
+      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      resolve(new File([blob], `voice-note-${stamp}.webm`, { type: blob.type }));
+    };
+    stop.onclick = () => recorder.stop();
+    cancel.onclick = () => { cancelled = true; recorder.stop(); };
+    recorder.start();
+  });
 }
 
 function pickFiles(accept: string): Promise<FileList | null> {

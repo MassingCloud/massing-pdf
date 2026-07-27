@@ -79,19 +79,28 @@ export { pinsPlugin, DEFAULT_ISSUE_TYPES, type PinOptions, type IssueFields } fr
 export { markupListPlugin, type MarkupListOptions } from "./plugins/markupList";
 export { comparePlugin, comparePages, type CompareOptions, type CompareResult, type DiffRegion } from "./plugins/compare";
 export {
-  migrationPlugin, planMigration,
+  migrationPlugin, planMigration, migrate,
   type MigrationOptions, type MigrationProposal, type MigrationVerdict,
 } from "./plugins/migration";
 export { searchPlugin, findInWords, type SearchOptions, type SearchHit, type HitSource } from "./plugins/search";
+export { viewsPlugin, applyView, type ViewsOptions } from "./plugins/views";
 export {
   specsPlugin, parseSpecs, parseSpecLines, extractRequirements,
+  findSpecReferences, scanSpecReferences,
   type SpecsOptions, type SpecSection, type SpecClause, type SpecLine, type SpecRequirement,
+  type SpecReference,
 } from "./plugins/specs";
 export {
   historicalPlugin, CONFIDENCE_LEVELS,
   type HistoricalOptions, type Confidence, type ImageAdjustments,
 } from "./plugins/historical";
-export { attachmentsPlugin, type AttachmentOptions } from "./plugins/attachments";
+export {
+  attachmentsPlugin, recordVoiceNote, voiceSupported, type AttachmentOptions,
+} from "./plugins/attachments";
+export {
+  ocrPlugin, tesseractProvider, restOcrProvider, toTextItems,
+  type OcrOptions, type OcrProvider, type OcrInput, type OcrResult, type OcrWord,
+} from "./plugins/ocr";
 export { sheetsPlugin, extractSheetMeta, type SheetsOptions } from "./plugins/sheets";
 export { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 export { persistencePlugin, type PersistenceOptions } from "./plugins/persistence";
@@ -100,9 +109,11 @@ export { exportersPlugin, buildSet, applySet, type ExportOptions, type MarkupSet
 // ---- interchange -----------------------------------------------------------
 export { toXfdf, fromXfdf, type XfdfExportOptions, type XfdfImportOptions, type XfdfPageBox } from "./io/xfdf";
 export {
-  toBcfTopic, toBcfTopics, fromBcfTopic, encodeAnchor, decodeAnchor, normaliseGuid,
-  type BcfTopic, type BcfComment, type BcfExport, type SheetAnchor,
+  toBcfTopic, toBcfTopics, fromBcfTopic, toBcfZip, topicMarkupXml,
+  encodeAnchor, decodeAnchor, normaliseGuid,
+  type BcfTopic, type BcfComment, type BcfExport, type SheetAnchor, type BcfZipOptions,
 } from "./io/bcf";
+export { zip, type ZipEntry } from "./io/zip";
 export { toCsv, toTakeoffCsv, DEFAULT_COLUMNS, type CsvOptions, type CsvColumn } from "./io/csv";
 export { flattenToPdf, type FlattenOptions } from "./io/flatten";
 

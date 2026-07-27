@@ -7,60 +7,70 @@ between what the spec asks for and what exists, rather than to imply the spec is
 
 | Spec area | State |
 |---|---|
-| §3 Navigation and viewing | Continuous scroll, tiled zoom for large sheets, rotation, fit modes, thumbnails, sheet index. **No** split view or multi-tab sessions. |
-| §4 Markup system | 22 kinds including real revision clouds, stamps, measurements, glyph-anchored text markup, and photo/file attachments. **No** voice capture UI. |
+| §3 Navigation and viewing | Continuous scroll, tiled zoom, rotation, fit modes, thumbnails, sheet index, saved views, split pane. **No** multi-tab review sessions. |
+| §4 Markup system | 22 kinds including revision clouds, stamps, measurements, glyph-anchored text markup, photo/file attachments, and voice notes. |
 | §5 Structured markup data | Complete — every field in the spec's list, plus provenance. |
-| §6 Revision survival | Overlay compare, auto-alignment, diff clustering, auto-clouding, **and slip-sheet migration with a review queue**. |
-| §7 Specifications workspace | CSI section/clause parsing, clause tree, clause citation from a markup, requirement extraction. **No** cross-document spec↔drawing auto-linking. |
-| §8 Issues and tasks | Pins, status, assignee, due date, promote-to-issue, BCF mapping. **No** forms or daily reports. |
+| §6 Revision survival | Overlay compare, alignment (translation and uniform scale), diff clustering, auto-clouding, slip-sheet migration with a review queue and audit trail. |
+| §7 Specifications workspace | CSI section/clause parsing, clause tree, citation, requirement extraction, and drawing→spec callout detection with nearest-callout auto-citation. |
+| §8 Issues and tasks | Pins, status, assignee, due date, promote-to-issue, BCF topics and `.bcfzip`. **No** forms or daily reports. |
 | §9 Offline-first | IndexedDB working copy, durable outbound queue, version-based merge. **No** conflict-resolution UI. |
-| §10 Search | Document-wide search over sheet text, markups and the sheet register, with per-scope facets and spatial hit locations. **No** OCR, so scans are unsearchable. |
-| §11 Historical mode | Provenance fields, confidence tags that visibly change how a markup reads, transcription, contrast/invert legibility adjustments. **No** tracing overlay. |
-| Data model / interchange | JSON, XFDF, BCF topics, CSV, flattened PDF. **No** BCF `.bcfzip` packaging or ICDD. |
-| Plugin architecture | Kernel + 15 plugins, stable extension points. |
+| §10 Search | Document-wide search over sheet text, markups and the sheet register, faceted and spatially located. OCR-backed on scans when a provider is configured. |
+| §11 Historical mode | Provenance, confidence tags that visibly change how a markup reads, transcription, contrast/invert, tracing overlay. |
+| Data model / interchange | JSON, XFDF, BCF topics, `.bcfzip`, CSV, flattened PDF. **No** ICDD packaging. |
+| Plugin architecture | Kernel + 17 plugins, stable extension points. |
+
+## Deliberate design decisions
+
+### OCR ships as an interface, not an engine
+
+Two constraints pull opposite ways: the viewer must run fully offline, and it must stay a library
+you can drop into an app. Bundling several megabytes of WASM would break the second; requiring a
+server would break the first. Picking either would be wrong for half of all consumers.
+
+So `ocrPlugin` owns the rasterisation, the coordinate mapping and the wiring into search, specs and
+title-block extraction, and the *recogniser* is supplied by the host. `tesseractProvider()` covers
+the offline case via a dynamic import of `tesseract.js` (not a dependency here — install it in the
+host); `restOcrProvider()` covers a service. A custom provider is four lines.
+
+The seam is `viewer.pageText(page)`, which returns the PDF's own text layer or recognised text when
+there isn't one. Every text consumer goes through it, which is why OCR lights all three up at once.
+
+### Compare searches translation and scale, not rotation
+
+Plot origins drift between issues, and a sheet is sometimes re-plotted to another paper size — both
+are handled. Rotation is not searched: re-issues are essentially never rotated, and a third
+parameter costs more in a brute-force search than it returns. A *skewed scan* is a different problem
+that wants phase correlation rather than a wider grid.
+
+### `.bcfzip` carries no viewpoints
+
+A BCF viewpoint requires a 3D camera. A markup on a sheet has a 2D anchor instead, which rides in a
+reference link and round-trips. Inventing a camera to satisfy the schema would put a wrong number
+in a file other people's software trusts.
 
 ## Not built
 
-### OCR (spec §10, §11)
+### ICDD / ISO 21597 packaging (spec Phase 3)
 
-The single largest remaining gap, and the one that gates the others for scanned sets. Without it,
-search, spec parsing and title-block extraction all return nothing on a scan — they degrade
-gracefully, but they degrade to empty.
+The container standard for linking heterogeneous AEC documents. Wanted eventually; needs the
+relationship model settled across Massing first, so building it here in isolation would be guessing.
 
-Needs a decision before any code: server-side (a service call, no bundle cost, needs connectivity)
-or in-browser (Tesseract WASM, several MB, works offline). The offline requirement argues for the
-latter and the bundle size argues against it. Worth deciding deliberately rather than by default.
+### 4D/5D and digital twin bridges (spec Phase 3)
 
-### Spec ↔ drawing auto-linking (spec §7)
+`AnnotLinks.ifcGuids` is the hook. Everything above it depends on Massing's coordination surfaces.
 
-Citation works, but it is manual: select a markup, click a clause. The spec asks for cross-links
-from drawing callouts to spec clauses — meaning a keynote reading "FIRESTOP PER 07 84 00" should
-offer the link itself. The pieces exist (the clause index, the sheet text index); what's missing is
-the matcher and a confidence threshold below which it should stay quiet.
+### Forms, daily reports, constraint logs (spec §8)
 
-### Voice notes and field capture (spec §4, §9)
+Pins and issues are done; the wider field-reporting surfaces are a host concern with their own data
+model, and would be a plugin rather than core work.
 
-Attachments handle photos, video and files. Voice specifically needs `MediaRecorder` wiring and a
-playback control, plus a decision about where a 2-minute recording lives when there's no upload
-handler configured.
+### Multi-tab review sessions (spec §3)
 
-### Tracing overlay (spec §11)
-
-Comparative mode overlays a historical scan against a redrawn CAD sheet — compare already does the
-raster overlay, but the preservation workflow wants an adjustable-opacity tracing layer that stays
-put while you draw on top of it, which is a different interaction.
-
-### 4D/5D, digital twin, ICDD (spec Phase 3)
-
-`AnnotLinks.ifcGuids` is the hook. Everything above it depends on Massing's own coordination
-surfaces and isn't buildable here in isolation.
+Split view covers side-by-side comparison. Independent tabbed sessions are a host-shell concern —
+the viewer is already instantiable more than once on a page.
 
 ## Known limitations
 
-- **Compare handles translation only** — not rotation or scale. Sheets re-issued at a different
-  size, or scans with a slight skew, will not align, and migration inherits that. A similarity
-  transform is the fix; the brute-force pyramid search doesn't extend cleanly to more parameters, so
-  it likely wants proper phase correlation instead.
 - **The text layer is disabled when the view is rotated.** Its spans are positioned in unrotated
   page space, so a rotated view would offer selections that land in the wrong place. Hiding it is
   the honest failure; making it follow the rotation is the fix.
@@ -70,24 +80,30 @@ surfaces and isn't buildable here in isolation.
 - **Word boxes are apportioned by character count**, so a search hit's highlight in a proportional
   font can be off by a character's width. Fine for finding things; not precise enough to derive
   geometry from.
-- **The toolbar rebuilds wholesale** on selection change. Fine at this scale.
-- **No virtualisation in the markup list or the search results.** Both cap at a few hundred rows.
+- **The ZIP writer stores, it does not deflate.** Correct and universally readable, and BCF payloads
+  are small XML plus already-compressed PNGs — but it is not a general-purpose archiver, and it has
+  no ZIP64, so it is capped at 4 GB and 65 535 entries.
+- **The split pane is read-only.** Two editable panes over one store raises questions about which
+  pane owns a gesture that aren't worth answering for a comparison surface.
+- **No virtualisation in the markup list or search results.** Both cap at a few hundred rows.
 - **Prompts default to `window.prompt`.** Every plugin taking user text accepts a `promptText`
-  override, and a host should pass one — the default exists so the library works standalone, not
-  because it is good.
+  override, and a host should pass one — the default exists so the library works standalone.
 
-## Testing gaps
+## Testing
 
-164 unit tests cover geometry, units, the store, interchange, spec parsing, text splitting, search
-matching and migration planning. Not covered by unit tests:
+193 unit tests cover geometry, units, the store, interchange, spec parsing and reference matching,
+text splitting, search matching, migration planning, OCR coordinate mapping, and the ZIP writer
+(verified by reading its own central directory back, not by trusting the bytes).
+
+Not covered by unit tests, because they need a browser — `happy-dom` has no layout, and pdf.js drives
+its render loop from `requestAnimationFrame`, which does not fire in a headless or hidden page:
 
 - The pointer gesture loop (drag, poly, vertex edit).
 - Tiled rasterisation at high zoom.
-- The compare/diff pipeline end to end.
+- The compare/diff pipeline end to end, and therefore OCR rasterisation.
 - `IndexedDbAdapter` and `OfflineAdapter` queue drain and retry.
 
-These need a browser: `happy-dom` has no layout, and pdf.js drives its render loop from
-`requestAnimationFrame`, which does not fire in a headless or hidden page. They are currently
-verified by driving the demo manually — the generated sample sheet is a deterministic fixture with
-known dimensions and a real CSI spec page. A Playwright suite over that same fixture would close
-this properly.
+These are verified by driving the demo, whose generated sample is a deterministic fixture: an ARCH D
+plan at a known scale with a printed dimension, a details sheet, and a real CSI spec section that the
+plan's keyed notes call out by number. A Playwright suite over that fixture would close this
+properly and is the highest-value remaining test work.

@@ -147,6 +147,25 @@ export function historicalPlugin(options: HistoricalOptions = {}) {
         });
       }
 
+      // --- tracing overlay ---------------------------------------------------
+      let tracing: TracingOverlay | null = null;
+      ctx.onCleanup(() => tracing?.destroy());
+
+      ctx.registerAction({
+        id: "historical.trace", label: "Tracing overlay", icon: "⧉", group: "archive",
+        enabled: (v) => Boolean(v.doc),
+        async run(v) {
+          if (tracing) { tracing.destroy(); tracing = null; return; }
+          const file = await pickImage();
+          if (!file) return;
+          try {
+            tracing = mountTracing(v, file);
+          } catch (e) {
+            v.bus.emit("notice", { level: "error", message: `Tracing overlay failed: ${(e as Error).message}` });
+          }
+        },
+      });
+
       ctx.registerPanel({
         id: "provenance", title: "Provenance", side: options.side ?? "right", order: 40,
         mount: (host, v) => mountProvenance(host, v, ask, options),
@@ -257,6 +276,74 @@ function mountProvenance(
   ];
   render();
   return () => offs.forEach((off) => off());
+}
+
+// ---- tracing overlay -------------------------------------------------------
+
+interface TracingOverlay { destroy(): void }
+
+/**
+ * Lay a scanned original over the current sheet at adjustable opacity, so a redraw can be traced
+ * against it.
+ *
+ * Distinct from compare's difference view, which answers "what changed" between two issues. This
+ * answers "does my redraw match the original", which needs the source to stay put and stay
+ * translucent while you draw on top of it — so it sits *under* the annotation overlay, ignores
+ * pointer events entirely, and is positioned in page space so it tracks zoom and scroll for free.
+ */
+function mountTracing(v: Viewer, file: File): TracingOverlay {
+  const wrap = v.el.pages.querySelector<HTMLElement>(`.mpdf-page-wrap[data-page="${v.page}"]`);
+  if (!wrap) throw new Error(`page ${v.page} is not on screen`);
+
+  const url = URL.createObjectURL(file);
+  const img = document.createElement("img");
+  img.className = "mpdf-tracing";
+  img.src = url;
+  img.alt = "Tracing source";
+  img.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;object-fit:contain;" +
+    "pointer-events:none;z-index:2;opacity:0.5;";
+  wrap.appendChild(img);
+
+  const controls = document.createElement("div");
+  controls.className = "mpdf-tracing-controls";
+  const label = document.createElement("span");
+  label.textContent = "Tracing 50%";
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = "0";
+  slider.max = "100";
+  slider.value = "50";
+  slider.oninput = () => {
+    img.style.opacity = String(Number(slider.value) / 100);
+    label.textContent = `Tracing ${slider.value}%`;
+  };
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "mpdf-icon-btn";
+  close.textContent = "✕";
+  close.title = "Remove the tracing overlay";
+  controls.append(label, slider, close);
+  v.el.root.appendChild(controls);
+
+  const destroy = () => {
+    img.remove();
+    controls.remove();
+    URL.revokeObjectURL(url);
+  };
+  close.onclick = destroy;
+  return { destroy };
+}
+
+function pickImage(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
 }
 
 declare module "../core/viewer" {

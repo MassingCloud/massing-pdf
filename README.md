@@ -127,15 +127,44 @@ submittal, quality, warranty and closeout requirements out of Part 1 into a chec
 Field coordination lives in the specs: a drawing note saying "firestop per spec" is only actionable
 if you can get to the section and read what it actually requires.
 
+Callouts are detected too: a keyed note reading "FIRESTOP PER SPEC 07 84 00" is matched against the
+parsed sections, so the panel shows which sheets reference a section, and a markup dropped beside
+that note can cite it without anyone typing a section number.
+
 ### Search
 
 One query across sheet text, markup content and the sheet register, kept distinguishable in the
 results and spatially located on the page. Phrase matching runs over the joined word stream, so a
 phrase split across separate PDF text runs — the normal case — still matches.
 
+### OCR, as an interface
+
+Scans carry no text layer, so search, spec parsing and title-block extraction all return nothing on
+them. Two constraints pull opposite ways here: the viewer must run offline, and it must stay a
+library you can drop into an app — so bundling megabytes of WASM and requiring a server are both
+wrong for half of all consumers.
+
+The plugin therefore owns the rasterisation, the coordinate mapping and the wiring, and you supply
+the recogniser:
+
+```ts
+import { createViewer, tesseractProvider, restOcrProvider } from "@massingcloud/pdf-viewer";
+
+await createViewer({
+  container, workerUrl,
+  ocr: { provider: tesseractProvider() },        // needs `tesseract.js` in your app
+  // ocr: { provider: restOcrProvider({ url: "/api/ocr" }) },
+});
+```
+
+Everything reads text through one kernel seam — `viewer.pageText(page)`, which returns the PDF's own
+layer or recognised text when there isn't one — which is why one provider lights up search, specs and
+the sheet register at once.
+
 ### Preservation mode
 
-Provenance (archive, collection, scan resolution, architect) and, more importantly, **uncertainty**.
+Provenance, a tracing overlay for checking a redraw against its source, and — more importantly —
+**uncertainty**.
 A dimension read off a medium-resolution scan of a century-old drawing is not the same claim as one
 read off a CAD export, and a system that records both identically is quietly lying. Confidence tags
 change how a markup *looks* — the less certain, the more broken up the line — alongside contrast and
@@ -184,6 +213,8 @@ Viewer (kernel)
 | `markupListPlugin` | the faceted markup list |
 | `comparePlugin` | overlay, auto-align, diff, cloud-the-changes |
 | `migrationPlugin` | slip-sheet: plan, verdict per markup, review queue |
+| `ocrPlugin` | recognise scanned pages via a provider you supply |
+| `viewsPlugin` | saved views and the split pane |
 | `specsPlugin` | CSI parsing, clause tree, citation, requirement extraction |
 | `searchPlugin` | document-wide search over text, markups and sheets |
 | `historicalPlugin` | provenance, confidence, legibility adjustments |
@@ -261,7 +292,7 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 ```bash
 npm install
 npm run dev        # demo at :5173
-npm test           # 164 unit tests
+npm test           # 193 unit tests
 npm run check      # typecheck + lint + test
 npm run build      # library → dist/
 npm run demo:build # standalone demo → dist-demo/
@@ -273,14 +304,16 @@ worker, since two versions in one page fail in confusing ways.
 
 ## Status
 
-Working and tested: the markup engine, measurement, the store and undo, interchange, adapters, the
-plugin kernel, spec parsing, search, glyph-anchored text markup, and slip-sheet migration.
-164 unit tests.
+Every functional area of the product spec is implemented. 193 unit tests cover the parts where
+correctness is load-bearing — measurement, the store, interchange, spec parsing, migration planning,
+the ZIP writer — and the rest is verified by driving the demo against a deterministic sample sheet.
 
-See [docs/roadmap.md](docs/roadmap.md) for what is deliberately not built. Chiefly **OCR**, which
-gates search, spec parsing and title-block extraction on scanned sets — they degrade gracefully, but
-they degrade to empty. Also: automatic spec↔drawing linking (citation is manual), and compare
-handles translation but not rotation or scale.
+[docs/roadmap.md](docs/roadmap.md) records what is deliberately *not* built and why: ICDD packaging
+and the 4D/5D bridges wait on Massing's own coordination model, and BCF viewpoints are omitted
+because a sheet markup has no 3D camera and inventing one would put a wrong number in a file other
+tools trust. Known limitations are listed there too — the text layer switches off under view
+rotation, spec parsing is heuristic with no manual-correction path, and the ZIP writer stores rather
+than deflates.
 
 ## Licence
 

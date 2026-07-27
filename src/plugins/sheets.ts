@@ -9,7 +9,7 @@
 import { definePlugin } from "../core/plugin";
 import type { Discipline, SheetKind, SheetMeta } from "../core/types";
 import type { Viewer } from "../core/viewer";
-import type { PdfDocument, TextItem } from "../core/document";
+import type { TextItem } from "../core/document";
 
 export interface SheetsOptions {
   /**
@@ -82,7 +82,7 @@ async function populate(v: Viewer, options: SheetsOptions): Promise<void> {
   }
   if (options.extract === false) return;
   for (let p = 1; p <= doc.numPages; p++) {
-    const meta = await extractSheetMeta(doc, p).catch(() => null);
+    const meta = await extractSheetMeta(v, p).catch(() => null);
     if (meta) v.store.setSheet(meta);
   }
 }
@@ -92,9 +92,10 @@ async function populate(v: Viewer, options: SheetsOptions): Promise<void> {
  * sheet number is the largest text in that region matching a sheet-number pattern, and the title is
  * the largest text near it that isn't the number.
  */
-export async function extractSheetMeta(doc: PdfDocument, page: number): Promise<SheetMeta | null> {
-  const info = await doc.pageInfo(page);
-  const items = await doc.textItems(page);
+export async function extractSheetMeta(viewer: Viewer, page: number): Promise<SheetMeta | null> {
+  const info = await viewer.doc!.pageInfo(page);
+  // Through the kernel, so OCR output on a scanned sheet fills the register too.
+  const items = await viewer.pageText(page);
   if (!items.length) return { sheetId: String(page), page };
 
   // The title-block strip: right 22% or bottom 18% — the two conventional placements.

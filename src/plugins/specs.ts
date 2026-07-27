@@ -10,9 +10,8 @@
  * requirements buried in Part 1 can be pulled out into a checklist.
  */
 import { definePlugin } from "../core/plugin";
-import { splitWords, unionBox } from "../core/textLayer";
+import { splitWords, unionBox, type Word } from "../core/textLayer";
 import type { Box } from "../core/types";
-import type { PdfDocument } from "../core/document";
 import type { Viewer } from "../core/viewer";
 
 /** One clause within a section — the citable unit. */
@@ -48,6 +47,8 @@ export interface SpecRequirement {
 export interface SpecsOptions {
   /** Supply sections from the host instead of parsing — a project with a spec register should win. */
   sections?: (viewer: Viewer) => Promise<SpecSection[]>;
+  /** Skip scanning the drawings for callouts naming a section. */
+  scanReferences?: boolean;
   side?: "left" | "right";
   /** Skip parsing entirely (this document is a drawing set, not a spec book). */
   parse?: boolean;
@@ -80,8 +81,9 @@ const REQUIREMENT_PATTERNS: [RegExp, SpecRequirement["kind"]][] = [
  * Group a page's words into lines, so headings can be matched against whole lines rather than
  * against the arbitrary text runs pdf.js reports.
  */
-async function pageLines(doc: PdfDocument, page: number): Promise<{ text: string; box: Box }[]> {
-  const words = splitWords(await doc.textItems(page));
+async function pageLines(viewer: Viewer, page: number): Promise<{ text: string; box: Box }[]> {
+  // Through the kernel, so a scanned spec book served by OCR parses the same way.
+  const words = splitWords(await viewer.pageText(page));
   if (!words.length) return [];
   const sorted = [...words].sort((a, b) => a.y - b.y || a.x - b.x);
   const lines: { words: typeof words; y: number }[] = [];
@@ -174,19 +176,101 @@ export function parseSpecLines(lines: readonly SpecLine[]): SpecSection[] {
   return sections;
 }
 
-/** Read a spec book out of a PDF and parse it. */
+/** Read a spec book out of the open document and parse it. */
 export async function parseSpecs(
-  doc: PdfDocument,
+  viewer: Viewer,
   onProgress?: (page: number, total: number) => void,
 ): Promise<SpecSection[]> {
   const lines: SpecLine[] = [];
-  for (let page = 1; page <= doc.numPages; page++) {
-    onProgress?.(page, doc.numPages);
-    for (const line of await pageLines(doc, page).catch(() => [])) {
+  for (let page = 1; page <= viewer.numPages; page++) {
+    onProgress?.(page, viewer.numPages);
+    for (const line of await pageLines(viewer, page).catch(() => [])) {
       lines.push({ ...line, page });
     }
   }
   return parseSpecLines(lines);
+}
+
+/** A mention of a spec section found on a drawing sheet. */
+export interface SpecReference {
+  /** Normalised section number, matching a parsed `SpecSection.number`. */
+  section: string;
+  page: number;
+  box: Box;
+  /** The text as it appears on the sheet, e.g. `SEE SPEC 07 84 00`. */
+  text: string;
+}
+
+/**
+ * `07 84 00`, `07 8400`, `078400`.
+ *
+ * The word boundaries at both ends are load-bearing: without them this matches the first six
+ * digits of any longer number, so a dimension string or a phone number in a title block would
+ * read as a spec reference.
+ */
+const SECTION_MENTION = /\b(\d{2})[\s-]?(\d{2})[\s-]?(\d{2})\b/g;
+
+/**
+ * Find mentions of known spec sections in a page's words.
+ *
+ * Matched against the *parsed section list* rather than against the pattern alone: on a drawing,
+ * six digits in a row is far more often a dimension, a door number or a date than a section
+ * reference, and only cross-checking against sections that actually exist keeps the noise down.
+ */
+export function findSpecReferences(
+  words: readonly Word[],
+  sections: readonly SpecSection[],
+  page: number,
+): SpecReference[] {
+  if (!words.length || !sections.length) return [];
+  const known = new Set(sections.map((s) => s.number));
+
+  // Join into a character stream with an owner map, so a section number split across words
+  // ("07", "84", "00") is still found.
+  let hay = "";
+  const owner: number[] = [];
+  words.forEach((w, i) => {
+    if (hay) { hay += " "; owner.push(i); }
+    for (let c = 0; c < w.str.length; c++) owner.push(i);
+    hay += w.str;
+  });
+
+  const out: SpecReference[] = [];
+  const seen = new Set<string>();
+  SECTION_MENTION.lastIndex = 0;
+  for (let m = SECTION_MENTION.exec(hay); m; m = SECTION_MENTION.exec(hay)) {
+    const number = `${m[1]} ${m[2]} ${m[3]}`;
+    if (!known.has(number)) continue;
+    const key = `${number}@${m.index}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const first = owner[m.index] ?? 0;
+    const last = owner[Math.min(m.index + m[0].length - 1, owner.length - 1)] ?? first;
+    out.push({
+      section: number,
+      page,
+      box: unionBox(words.slice(first, last + 1)),
+      text: hay.slice(Math.max(0, m.index - 24), m.index + m[0].length + 12).trim(),
+    });
+  }
+  return out;
+}
+
+/** Scan every page of the open document for mentions of the parsed sections. */
+export async function scanSpecReferences(
+  viewer: Viewer,
+  sections: readonly SpecSection[],
+): Promise<SpecReference[]> {
+  const out: SpecReference[] = [];
+  // Skip the pages the sections were parsed *from* — a spec book mentions its own number on every
+  // page, and those are not drawing callouts.
+  const specPages = new Set(sections.flatMap((s) => s.clauses.map((c) => c.page).concat(s.page)));
+  for (let page = 1; page <= viewer.numPages; page++) {
+    if (specPages.has(page)) continue;
+    const words = splitWords(await viewer.pageText(page).catch(() => []));
+    out.push(...findSpecReferences(words, sections, page));
+  }
+  return out;
 }
 
 /** Pull the actionable requirements out of parsed sections. */
@@ -210,6 +294,7 @@ export function specsPlugin(options: SpecsOptions = {}) {
     order: 45,
     setup(ctx) {
       let sections: SpecSection[] = [];
+      let references: SpecReference[] = [];
       let parsed = false;
       let parsing = false;
 
@@ -221,13 +306,18 @@ export function specsPlugin(options: SpecsOptions = {}) {
             sections = await options.sections(v);
           } else if (options.parse !== false && v.doc) {
             v.bus.emit("notice", { level: "info", message: "Reading specification sections…" });
-            sections = await parseSpecs(v.doc);
+            sections = await parseSpecs(v);
           }
           parsed = true;
+          // Once sections are known, look for callouts naming them on the drawing sheets.
+          references = sections.length && options.scanReferences !== false
+            ? await scanSpecReferences(v, sections).catch(() => [])
+            : [];
           v.bus.emit("notice", {
             level: sections.length ? "success" : "info",
             message: sections.length
-              ? `Found ${sections.length} specification section${sections.length === 1 ? "" : "s"}.`
+              ? `Found ${sections.length} specification section${sections.length === 1 ? "" : "s"}`
+                + (references.length ? `, referenced ${references.length} time${references.length === 1 ? "" : "s"} on the drawings.` : ".")
               : "No CSI specification sections found in this document.",
           });
         } catch (e) {
@@ -238,11 +328,51 @@ export function specsPlugin(options: SpecsOptions = {}) {
         return sections;
       };
 
-      ctx.bus.on("doc:loaded", () => { sections = []; parsed = false; });
+      ctx.bus.on("doc:loaded", () => { sections = []; references = []; parsed = false; });
 
       ctx.registerPanel({
         id: "specs", title: "Specifications", side: options.side ?? "left", order: 40,
-        mount: (host, v) => mountSpecs(host, v, () => sections, () => load(v)),
+        mount: (host, v) => mountSpecs(host, v, () => sections, () => references, () => load(v)),
+      });
+
+      /**
+       * Cite the section a nearby drawing callout names. This is the pay-off for scanning
+       * references: a markup dropped next to "SEE SPEC 07 84 00" can cite it without anyone typing
+       * a section number.
+       */
+      ctx.registerAction({
+        id: "specs.citeNearest", label: "Cite the spec called out here", icon: "🔗", group: "review",
+        enabled: (v) => v.store.selectedIds().length > 0,
+        async run(v) {
+          await load(v);
+          const selected = v.store.selected();
+          let linked = 0;
+          for (const a of selected) {
+            const anchor = a.points[0];
+            if (!anchor) continue;
+            const onPage = references.filter((r) => r.page === a.page);
+            if (!onPage.length) continue;
+            // Nearest by centre-to-centre distance; a callout more than a third of the page away
+            // is not what this markup is about.
+            const info = v.doc?.pageInfoSync(a.page);
+            const limit = info ? Math.max(info.width, info.height) / 3 : Infinity;
+            let best: SpecReference | null = null;
+            let bestD = limit;
+            for (const r of onPage) {
+              const d = Math.hypot(r.box.x + r.box.w / 2 - anchor.x, r.box.y + r.box.h / 2 - anchor.y);
+              if (d < bestD) { bestD = d; best = r; }
+            }
+            if (!best) continue;
+            v.store.update(a.id, { links: { ...a.links, spec: { section: best.section } } });
+            linked++;
+          }
+          v.bus.emit("notice", {
+            level: linked ? "success" : "warn",
+            message: linked
+              ? `Cited the nearest spec callout on ${linked} markup${linked === 1 ? "" : "s"}.`
+              : "No spec callout found near the selection on this sheet.",
+          });
+        },
       });
 
       ctx.registerAction({
@@ -252,6 +382,7 @@ export function specsPlugin(options: SpecsOptions = {}) {
 
       ctx.viewer.specs = {
         sections: () => sections,
+        references: () => references,
         load: () => load(ctx.viewer),
         requirements: () => extractRequirements(sections),
         /** Cite a clause on a markup — the link that makes a spec reference navigable. */
@@ -272,6 +403,7 @@ function mountSpecs(
   host: HTMLElement,
   v: Viewer,
   get: () => SpecSection[],
+  getRefs: () => SpecReference[],
   load: () => Promise<SpecSection[]>,
 ): () => void {
   const search = document.createElement("input");
@@ -371,6 +503,17 @@ function mountSpecs(
       const ttl = document.createElement("span");
       ttl.textContent = section.title;
       summary.append(num, ttl);
+      // Where this section is called out on the drawings — the cross-link the spec asks for.
+      const refs = getRefs().filter((r) => r.section === section.number);
+      if (refs.length) {
+        const where = document.createElement("em");
+        where.className = "mpdf-spec-refs";
+        const sheets = [...new Set(refs.map((r) => v.store.sheet(r.page)?.number ?? `p.${r.page}`))];
+        where.textContent = `on ${sheets.slice(0, 3).join(", ")}${sheets.length > 3 ? "…" : ""}`;
+        where.title = "Referenced on these sheets — click to jump";
+        where.onclick = (e) => { e.stopPropagation(); void v.goToPage(refs[0]!.page); };
+        summary.appendChild(where);
+      }
       summary.onclick = (e) => {
         // Let the disclosure toggle, but also navigate to the section.
         if ((e.target as HTMLElement).tagName !== "SUMMARY") return;
@@ -428,6 +571,7 @@ declare module "../core/viewer" {
     /** Present once the specs plugin is installed. */
     specs?: {
       sections(): SpecSection[];
+      references(): SpecReference[];
       load(): Promise<SpecSection[]>;
       requirements(): SpecRequirement[];
       cite(annotId: string, section: string, clause?: string): boolean;

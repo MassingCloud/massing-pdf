@@ -9,6 +9,7 @@
  * Emitting a full `.bcfzip` needs a zip writer and viewpoint snapshots, which is a host concern —
  * this produces the topic *records* and leaves packaging to the caller.
  */
+import { zip, type ZipEntry } from "./zip";
 import type { Annotation, AnnotationDraft, AnnotStatus, AnnotPriority } from "../core/types";
 
 /** A BCF topic, in the JSON shape the BCF-API uses. */
@@ -180,6 +181,93 @@ export function toBcfTopics(annots: readonly Annotation[], opts: { documentName?
   return annots
     .filter((a) => (opts.onlyPins ? a.kind === "pin" : a.kind === "pin" || a.status !== "info"))
     .map((a) => toBcfTopic(a, opts));
+}
+
+// ---- .bcfzip packaging -----------------------------------------------------
+
+const esc = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const el = (tag: string, text: string | undefined): string =>
+  text ? `<${tag}>${esc(text)}</${tag}>` : "";
+
+/** One topic's `markup.bcf` document. */
+export function topicMarkupXml(entry: BcfExport): string {
+  const { topic, comments } = entry;
+  return [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<Markup>`,
+    `  <Topic Guid="${esc(topic.guid)}" TopicType="${esc(topic.topic_type)}" TopicStatus="${esc(topic.topic_status)}">`,
+    `    ${el("Title", topic.title)}`,
+    topic.priority ? `    ${el("Priority", topic.priority)}` : "",
+    `    ${el("CreationDate", topic.creation_date)}`,
+    `    ${el("CreationAuthor", topic.creation_author)}`,
+    topic.modified_date ? `    ${el("ModifiedDate", topic.modified_date)}` : "",
+    topic.assigned_to ? `    ${el("AssignedTo", topic.assigned_to)}` : "",
+    topic.due_date ? `    ${el("DueDate", topic.due_date)}` : "",
+    topic.description ? `    ${el("Description", topic.description)}` : "",
+    ...(topic.labels ?? []).map((l) => `    ${el("Labels", l)}`),
+    // The sheet anchor rides in a reference link, which is how it survives a round trip.
+    ...(topic.reference_links ?? []).map((r) => `    ${el("ReferenceLink", r)}`),
+    `  </Topic>`,
+    ...comments.map((c) => [
+      `  <Comment Guid="${esc(c.guid)}">`,
+      `    ${el("Date", c.date)}`,
+      `    ${el("Author", c.author)}`,
+      `    ${el("Comment", c.comment)}`,
+      `    <TopicGuid>${esc(c.topic_guid)}</TopicGuid>`,
+      `  </Comment>`,
+    ].join("\n")),
+    `</Markup>`,
+  ].filter(Boolean).join("\n");
+}
+
+/** The archive-level `bcf.version` file. */
+const VERSION_XML = [
+  `<?xml version="1.0" encoding="UTF-8"?>`,
+  `<Version VersionId="2.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`,
+  `  <DetailedVersion>2.1</DetailedVersion>`,
+  `</Version>`,
+].join("\n");
+
+export interface BcfZipOptions {
+  /** Project name written into `project.bcfp`. */
+  projectName?: string;
+  projectId?: string;
+  /** Timestamp for the archive entries. Defaults to a fixed date for reproducible output. */
+  date?: Date;
+}
+
+/**
+ * Package topics as a `.bcfzip` — one folder per topic, each with its `markup.bcf`.
+ *
+ * BCF 2.1 layout, which is what the widest set of tools reads. Viewpoints are omitted: a viewpoint
+ * requires a 3D camera, and a markup on a sheet has a 2D anchor instead — inventing a camera to
+ * satisfy the schema would put a wrong number in a file other people's software trusts.
+ */
+export function toBcfZip(topics: readonly BcfExport[], options: BcfZipOptions = {}): Uint8Array {
+  const date = options.date ?? new Date(1980, 0, 1);
+  const entries: ZipEntry[] = [{ name: "bcf.version", data: VERSION_XML, date }];
+
+  if (options.projectName || options.projectId) {
+    entries.push({
+      name: "project.bcfp",
+      date,
+      data: [
+        `<?xml version="1.0" encoding="UTF-8"?>`,
+        `<ProjectExtension>`,
+        `  <Project ProjectId="${esc(options.projectId ?? "massing")}">`,
+        `    ${el("Name", options.projectName)}`,
+        `  </Project>`,
+        `</ProjectExtension>`,
+      ].join("\n"),
+    });
+  }
+
+  for (const entry of topics) {
+    entries.push({ name: `${entry.topic.guid}/markup.bcf`, data: topicMarkupXml(entry), date });
+  }
+  return zip(entries);
 }
 
 /**

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mergeByLine, splitWords, unionBox } from "../src/core/textLayer";
 import { findInWords } from "../src/plugins/search";
-import { planMigration } from "../src/plugins/migration";
+import { toTextItems } from "../src/plugins/ocr";
+import { migrate, planMigration } from "../src/plugins/migration";
 import type { TextItem } from "../src/core/document";
 import type { Annotation } from "../src/core/types";
 import type { CompareResult } from "../src/plugins/compare";
@@ -122,6 +123,47 @@ describe("findInWords", () => {
   });
 });
 
+// ---- OCR mapping -----------------------------------------------------------
+
+describe("toTextItems", () => {
+  const words = [
+    { text: "DEMOLITION", x: 400, y: 200, w: 300, h: 40, confidence: 0.92 },
+    { text: "PLAN", x: 720, y: 200, w: 120, h: 40, confidence: 0.88 },
+  ];
+
+  it("converts raster pixels to page points", () => {
+    // 4 px per point: a word 400px from the left starts at 100pt.
+    const items = toTextItems(words, 4);
+    expect(items[0]).toEqual({ str: "DEMOLITION", x: 100, y: 50, w: 75, h: 10 });
+    expect(items[1]).toEqual({ str: "PLAN", x: 180, y: 50, w: 30, h: 10 });
+  });
+
+  it("emits the same shape pdf.js does, so every text consumer works unchanged", () => {
+    const [item] = toTextItems(words, 1);
+    expect(Object.keys(item!).sort()).toEqual(["h", "str", "w", "x", "y"]);
+  });
+
+  it("drops words below the confidence floor", () => {
+    const noisy = [...words, { text: "rn1st4ke", x: 0, y: 0, w: 50, h: 20, confidence: 0.1 }];
+    expect(toTextItems(noisy, 1, 0.4).map((i) => i.str)).toEqual(["DEMOLITION", "PLAN"]);
+    // A lower floor keeps it — the threshold is the caller's judgement, not a hard rule.
+    expect(toTextItems(noisy, 1, 0.05)).toHaveLength(3);
+  });
+
+  it("keeps words with no confidence reported", () => {
+    expect(toTextItems([{ text: "SURE", x: 0, y: 0, w: 40, h: 10 }], 1)).toHaveLength(1);
+  });
+
+  it("drops blank recognitions", () => {
+    expect(toTextItems([{ text: "   ", x: 0, y: 0, w: 40, h: 10, confidence: 1 }], 1)).toHaveLength(0);
+  });
+
+  it("feeds the same search path as native text", () => {
+    const items = toTextItems(words, 4);
+    expect(findInWords(splitWords(items), "DEMOLITION PLAN", 7)).toHaveLength(1);
+  });
+});
+
 // ---- migration -------------------------------------------------------------
 
 const annot = (over: Partial<Annotation> = {}): Annotation => ({
@@ -132,7 +174,7 @@ const annot = (over: Partial<Annotation> = {}): Annotation => ({
 });
 
 const result = (over: Partial<CompareResult> = {}): CompareResult => ({
-  offset: { x: 0, y: 0 }, regions: [], changedFraction: 0, ...over,
+  offset: { x: 0, y: 0 }, scale: 1, regions: [], changedFraction: 0, ...over,
 });
 
 describe("planMigration", () => {
@@ -204,5 +246,36 @@ describe("planMigration", () => {
   it("gives every proposal a human-readable reason", () => {
     const plans = planMigration([annot()], result({ offset: { x: 4, y: 0 } }), 1);
     expect(plans[0]!.reason.length).toBeGreaterThan(10);
+  });
+
+  it("rescales markups for a sheet re-plotted at another size", () => {
+    // ARCH C to ARCH D is roughly 1.29x. A translation-only migration would leave every markup
+    // clustered near the origin.
+    const [p] = planMigration([annot()], result({ scale: 1.294 }), 1);
+    expect(p!.verdict).toBe("shifted");
+    expect(p!.scale).toBeCloseTo(1.294, 6);
+    const moved = migrate(p!.annot.points, p!.scale, p!.offset);
+    expect(moved[0]).toEqual({ x: 129.4, y: 129.4 });
+    expect(moved[2]).toEqual({ x: 258.8, y: 258.8 });
+  });
+
+  it("combines scale and offset in the right order", () => {
+    // Compare aligns as scale-then-shift, so the markup must follow the same order.
+    const [p] = planMigration([annot()], result({ scale: 2, offset: { x: 10, y: 0 } }), 1);
+    const moved = migrate(p!.annot.points, p!.scale, p!.offset);
+    expect(moved[0]).toEqual({ x: 100 * 2 - 10, y: 200 });
+  });
+
+  it("treats a scale of exactly 1 as unmoved", () => {
+    const [p] = planMigration([annot()], result({ scale: 1 }), 1);
+    expect(p!.verdict).toBe("ok");
+  });
+
+  it("defaults a missing scale to 1 rather than collapsing geometry to a point", () => {
+    // A result from an older run, or a hand-built one, must not silently zero every markup.
+    const legacy = { offset: { x: 0, y: 0 }, regions: [], changedFraction: 0 } as unknown as CompareResult;
+    const [p] = planMigration([annot()], legacy, 1);
+    expect(p!.scale).toBe(1);
+    expect(migrate(p!.annot.points, p!.scale, p!.offset)[0]).toEqual({ x: 100, y: 100 });
   });
 });

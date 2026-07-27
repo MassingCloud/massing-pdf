@@ -140,6 +140,20 @@ Emit **page-space** SVG. The overlay's `viewBox` handles zoom, so `width: 2` mea
 the sheet at every zoom level. Divide by `zoom` only for things that must stay a fixed size on
 screen.
 
+## Page text
+
+Anything that reads a page's words must go through the kernel, not through `doc.textItems`:
+
+```ts
+const items = await viewer.pageText(page);   // native text layer, or OCR output when there is none
+await viewer.needsText(page);                // true for a scan awaiting recognition
+viewer.setRecognisedText(page, items);       // what an OCR provider feeds back in
+```
+
+That one seam is why configuring a single OCR provider lights up search, spec parsing and
+title-block extraction together. It never throws — an unreadable page yields an empty list, so an
+indexer sweeping a 400-page set is not aborted by one bad page.
+
 ## Events
 
 Subscribe with `ctx.bus.on(name, fn)` or `viewer.on(name, fn)`; both return an unsubscribe.

@@ -14,8 +14,8 @@
 import { definePlugin } from "../core/plugin";
 import { comparePages, type CompareResult } from "./compare";
 import { PdfDocument, type PdfSource } from "../core/document";
-import { bbox, boxesOverlap, translate } from "../core/geometry";
-import type { Annotation, Box } from "../core/types";
+import { bbox, boxesOverlap } from "../core/geometry";
+import type { Annotation, Box, Pt } from "../core/types";
 import type { Viewer } from "../core/viewer";
 
 export type MigrationVerdict = "ok" | "shifted" | "orphan" | "obsolete";
@@ -23,8 +23,10 @@ export type MigrationVerdict = "ok" | "shifted" | "orphan" | "obsolete";
 export interface MigrationProposal {
   annot: Annotation;
   verdict: MigrationVerdict;
-  /** Translation applied, in page points. */
+  /** Translation applied, in page points — after `scale`. */
   offset: { x: number; y: number };
+  /** Uniform scale applied about the page origin, for a sheet re-plotted to another size. */
+  scale: number;
   /** Why the verdict — shown in the queue so a reviewer isn't guessing. */
   reason: string;
   /** How much of the markup's footprint overlaps a detected change, 0..1. */
@@ -52,16 +54,17 @@ export function planMigration(
   page: number,
   orphanThreshold = 0.25,
 ): MigrationProposal[] {
-  // `result.offset` aligns the previous sheet onto the current one; markups move the other way.
-  // `|| 0` normalises the `-0` that negating a zero produces, which would otherwise show up in
-  // stored records and in every serialised export.
+  // Compare aligns the previous sheet onto the current one as `scale` then shift, so a point P on
+  // the old sheet lands at `P * scale − result.offset` on the new one. `|| 0` normalises the `-0`
+  // that negating a zero produces, which would otherwise reach stored records and every export.
+  const scale = result.scale || 1;
   const offset = { x: -result.offset.x || 0, y: -result.offset.y || 0 };
-  const moved = Math.hypot(offset.x, offset.y) > 0.5;
+  const moved = Math.hypot(offset.x, offset.y) > 0.5 || Math.abs(scale - 1) > 1e-4;
 
   return annots.filter((a) => a.page === page).map((annot) => {
-    const box = bbox(annot.points);
-    const shifted: Box = { x: box.x + offset.x, y: box.y + offset.y, w: box.w, h: box.h };
-    const overlap = changeOverlap(shifted, result.regions);
+    // Overlap is measured against where the markup *will land*, not where it currently is.
+    const landing = bbox(migrate(annot.points, scale, offset));
+    const overlap = changeOverlap(landing, result.regions);
 
     let verdict: MigrationVerdict;
     let reason: string;
@@ -70,13 +73,20 @@ export function planMigration(
       reason = `${Math.round(overlap * 100)}% of this markup sits over drawing that changed — re-place or re-word it.`;
     } else if (moved) {
       verdict = "shifted";
-      reason = `Sheet origin moved ${offset.x.toFixed(1)}, ${offset.y.toFixed(1)} pt; markup relocated to match.`;
+      reason = Math.abs(scale - 1) > 1e-4
+        ? `Sheet re-plotted at ${(scale * 100).toFixed(1)}% and offset ${offset.x.toFixed(1)}, ${offset.y.toFixed(1)} pt; markup rescaled and relocated to match.`
+        : `Sheet origin moved ${offset.x.toFixed(1)}, ${offset.y.toFixed(1)} pt; markup relocated to match.`;
     } else {
       verdict = "ok";
       reason = "Drawing underneath is unchanged.";
     }
-    return { annot, verdict, offset, reason, changeOverlap: overlap };
+    return { annot, verdict, offset, scale, reason, changeOverlap: overlap };
   });
+}
+
+/** Apply the alignment to a markup's geometry: scale about the page origin, then translate. */
+export function migrate(points: readonly Pt[], scale: number, offset: { x: number; y: number }): Pt[] {
+  return points.map((p) => ({ x: p.x * scale + offset.x, y: p.y * scale + offset.y }));
 }
 
 /** What fraction of a markup's footprint intersects a changed region. */
@@ -160,7 +170,7 @@ export function migrationPlugin(options: MigrationOptions = {}) {
           v.store.updateMany(accepted.map((p) => ({
             id: p.annot.id,
             patch: {
-              points: p.verdict === "shifted" ? translate(p.annot.points, p.offset.x, p.offset.y) : p.annot.points,
+              points: p.verdict === "shifted" ? migrate(p.annot.points, p.scale, p.offset) : p.annot.points,
               // An orphan keeps its geometry but is forced back into review — it must not read as
               // an accepted comment on a drawing that moved underneath it.
               ...(p.verdict === "orphan" ? { status: "in_review" as const } : {}),

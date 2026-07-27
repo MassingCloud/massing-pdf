@@ -569,6 +569,99 @@
 
 .mpdf-compare-overlay { mix-blend-mode: multiply; }
 
+/* ---- split view --------------------------------------------------------- */
+
+.mpdf-split {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 45%;
+  min-width: 0;
+  border-left: 1px solid var(--mpdf-line);
+}
+.mpdf-split-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mpdf-line);
+  background: var(--mpdf-panel);
+  font-size: 11.5px;
+}
+.mpdf-split-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mpdf-muted);
+}
+.mpdf-split-body { position: relative; flex: 1; min-height: 0; }
+/* The nested viewer supplies its own chrome; the split pane only needs the sheet. */
+.mpdf-split-body .mpdf-toolbar,
+.mpdf-split-body .mpdf-side,
+.mpdf-split-body .mpdf-status { display: none; }
+
+/* ---- tracing overlay ---------------------------------------------------- */
+
+.mpdf-tracing-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 44px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--mpdf-line);
+  border-radius: var(--mpdf-radius);
+  background: var(--mpdf-panel);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
+  font-size: 11.5px;
+}
+.mpdf-tracing-controls input[type="range"] { width: 120px; }
+
+/* ---- voice recording ---------------------------------------------------- */
+
+.mpdf-recording {
+  position: absolute;
+  left: 50%;
+  bottom: 44px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--mpdf-danger);
+  border-radius: 999px;
+  background: var(--mpdf-panel);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 45%);
+  transform: translateX(-50%);
+  font-size: 12px;
+}
+.mpdf-recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mpdf-danger);
+  animation: mpdf-pulse 1.2s ease-in-out infinite;
+}
+.mpdf-recording-time { font-variant-numeric: tabular-nums; min-width: 34px; }
+@keyframes mpdf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .mpdf-recording-dot { animation: none; } }
+
+.mpdf-attach-audio { width: 150px; height: 32px; }
+
+/* ---- spec cross-references ---------------------------------------------- */
+
+.mpdf-spec-refs {
+  flex: none;
+  color: var(--mpdf-accent);
+  font-size: 10px;
+  font-style: normal;
+  cursor: pointer;
+}
+.mpdf-spec-refs:hover { text-decoration: underline; }
+
 /* ---- narrow / field layout ---------------------------------------------- */
 
 @media (max-width: 900px) {

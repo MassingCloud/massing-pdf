@@ -39,9 +39,9 @@ class TextIndex {
   async words(page: number): Promise<Word[]> {
     const hit = this.pages.get(page);
     if (hit) return hit;
-    const doc = this.viewer.doc;
-    if (!doc) return [];
-    const words = splitWords(await doc.textItems(page));
+    if (!this.viewer.doc) return [];
+    // Via the kernel, so a scanned page served by OCR is searchable too.
+    const words = splitWords(await this.viewer.pageText(page));
     this.pages.set(page, words);
     return words;
   }

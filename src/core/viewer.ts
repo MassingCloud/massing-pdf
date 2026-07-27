@@ -5,7 +5,7 @@
  * selection, the tool gesture loop, and the plugin registries. It owns no domain knowledge: it does
  * not know what a revision cloud means, only that a tool asked for a `cloud` with four points.
  */
-import { PdfDocument, type PdfSource } from "./document";
+import { PdfDocument, type PdfSource, type TextItem } from "./document";
 import { PageView } from "./renderer";
 import { TextLayer, clearSelection, type TextSelection } from "./textLayer";
 import { EventBus, type EventName, type Handler, type Unsubscribe } from "./events";
@@ -98,6 +98,8 @@ export class Viewer {
   private gesture: GestureState | null = null;
   private destroyed = false;
   private scrollRaf = 0;
+  /** OCR output per page, for scans whose PDF carries no text layer. */
+  private recognised = new Map<number, TextItem[]>();
 
   constructor(opts: ViewerOptions) {
     this.opts = opts;
@@ -157,6 +159,7 @@ export class Viewer {
   private closeDoc(): void {
     for (const l of this.layers.values()) { l.view.destroy(); l.text.destroy(); l.wrap.remove(); }
     this.layers.clear();
+    this.recognised.clear();
     if (this.doc) { this.doc.destroy(); this.doc = null; this.bus.emit("doc:closed", undefined); }
   }
 
@@ -470,6 +473,39 @@ export class Viewer {
       this.bus.on(ev, repaint);
     }
   }
+
+  // ---- page text -----------------------------------------------------------
+
+  /**
+   * Text for a page: the PDF's own text layer, or recognised text when it has none.
+   *
+   * This is the single seam every text consumer goes through — search, spec parsing, title-block
+   * extraction. Putting it in the kernel is what lets an OCR plugin light all three up on a scanned
+   * set without any of them knowing OCR exists.
+   */
+  async pageText(page: number): Promise<TextItem[]> {
+    // A failure to read the native layer — an out-of-range page, a malformed one — must fall through
+    // to recognised text rather than propagate. Callers here are indexers looping over every page,
+    // and one bad page should not abort the sweep.
+    let native: TextItem[] = [];
+    try { native = (await this.doc?.textItems(page)) ?? []; }
+    catch { native = []; }
+    if (native.length) return native;
+    return this.recognised.get(page) ?? [];
+  }
+
+  /** Supply recognised text for a page. Ignored while the page has real text of its own. */
+  setRecognisedText(page: number, items: TextItem[]): void {
+    this.recognised.set(page, items);
+  }
+
+  /** True when a page has neither a text layer nor recognised text — i.e. a scan awaiting OCR. */
+  async needsText(page: number): Promise<boolean> {
+    return (await this.pageText(page)).length === 0;
+  }
+
+  /** Pages that have been given recognised text. */
+  recognisedPages(): number[] { return [...this.recognised.keys()].sort((a, b) => a - b); }
 
   // ---- text layer ----------------------------------------------------------
 

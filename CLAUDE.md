@@ -33,11 +33,12 @@ src/core/      viewer (kernel) · document · renderer · textLayer · store · 
                coords · geometry · units · filter · types
 src/render/    svg.ts — Annotation → SVG, page space
 src/plugins/   markup · measure · stamps · pins · markupList · search · specs · compare
-               migration · sheets · historical · attachments · toolbar · persistence · exporters
+               migration · sheets · historical · attachments · ocr · views · toolbar
+               persistence · exporters
 src/adapters/  memory · indexeddb · rest · offline
-src/io/        xfdf · bcf · csv · flatten
+src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
-test/          164 unit tests
+test/          193 unit tests
 ```
 
 ## Commands
@@ -68,6 +69,13 @@ npm run demo:build standalone demo → dist-demo/
   "Qualifications" needs `\bqualif\w*`. This silently empties the requirements checklist.
 - **A point markup has zero area.** Any code computing an overlap *ratio* against one divides by
   zero-ish and waves it through — check containment instead (see `changeOverlap` in migration).
+- **All text reads through `viewer.pageText(page)`**, never `doc.textItems` directly. That seam is
+  what lets OCR serve a scanned page to search, specs and title-block extraction at once.
+- **Bash heredocs here collapse doubled backslashes**, so a scripted edit meant to write a regex
+  word-boundary or a newline escape into source lands a literal control character instead — and the
+  regex then silently matches nothing. Prefer the Edit tool for anything containing backslashes; if
+  scripting, build them with `chr(92)`. Two such characters reached a commit before this was caught;
+  a tree scan for the C0 control range finds them.
 
 ## Local environment notes (this machine)
 - Repo root: `C:\Server\massingpdf` (Windows / PowerShell).

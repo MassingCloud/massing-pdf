@@ -18,6 +18,8 @@ import { searchPlugin, type SearchOptions } from "./plugins/search";
 import { specsPlugin, type SpecsOptions } from "./plugins/specs";
 import { historicalPlugin, type HistoricalOptions } from "./plugins/historical";
 import { attachmentsPlugin, type AttachmentOptions } from "./plugins/attachments";
+import { ocrPlugin, type OcrOptions } from "./plugins/ocr";
+import { viewsPlugin, type ViewsOptions } from "./plugins/views";
 import { sheetsPlugin, type SheetsOptions } from "./plugins/sheets";
 import { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 import { exportersPlugin, type ExportOptions } from "./plugins/exporters";
@@ -37,6 +39,8 @@ export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
   /** Slip-sheet migration. Depends on compare's alignment; enabled by default. */
   migration?: MigrationOptions | false;
   search?: SearchOptions | false;
+  /** Saved views and the split pane. */
+  views?: ViewsOptions | false;
   sheets?: SheetsOptions | false;
   /**
    * The specifications workspace. Enabled, but parsing is on demand — a 900-page spec book is not
@@ -47,6 +51,11 @@ export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
   historical?: HistoricalOptions | false;
   /** Photo/file attachments on markups. Off unless configured. */
   attachments?: AttachmentOptions | false;
+  /**
+   * OCR for scanned sheets. Off unless configured, and the recogniser is yours to supply — see
+   * `tesseractProvider` for offline, `restOcrProvider` for a service.
+   */
+  ocr?: OcrOptions | false;
   toolbar?: ToolbarOptions | false;
   exporters?: ExportOptions | false;
   /** Persistence is opt-in — omit it and markups live only in memory. */
@@ -59,7 +68,7 @@ export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
 export async function createViewer(options: CreateViewerOptions): Promise<Viewer> {
   const {
     workerUrl, markup, measure, stamps, pins, list, compare, migration, search, sheets, specs,
-    historical, attachments, toolbar, exporters, persistence, plugins = [], ...viewerOptions
+    historical, attachments, ocr, views, toolbar, exporters, persistence, plugins = [], ...viewerOptions
   } = options;
 
   if (workerUrl) configureWorker(workerUrl);
@@ -72,6 +81,8 @@ export async function createViewer(options: CreateViewerOptions): Promise<Viewer
 
   const viewer = new Viewer(viewerOptions);
   const standard: (ViewerPlugin | null)[] = [
+    // Before sheets: title-block extraction reads through the same kernel seam OCR fills.
+    ocr ? ocrPlugin(ocr) : null,
     sheets === false ? null : sheetsPlugin(sheets ?? {}),
     markup === false ? null : markupPlugin(markup ?? {}),
     measure === false ? null : measurePlugin(measure ?? {}),
@@ -79,6 +90,7 @@ export async function createViewer(options: CreateViewerOptions): Promise<Viewer
     pins === false ? null : pinsPlugin(pins ?? {}),
     list === false ? null : markupListPlugin(list ?? {}),
     search === false ? null : searchPlugin(search ?? {}),
+    views === false ? null : viewsPlugin(views ?? {}),
     specs === false ? null : specsPlugin(specs ?? {}),
     compare === false ? null : comparePlugin(compare ?? {}),
     migration === false ? null : migrationPlugin(migration ?? {}),

@@ -5,7 +5,7 @@
 import { definePlugin } from "../core/plugin";
 import { flattenToPdf, type FlattenOptions } from "../io/flatten";
 import { toXfdf, fromXfdf } from "../io/xfdf";
-import { toBcfTopics } from "../io/bcf";
+import { toBcfTopics, toBcfZip } from "../io/bcf";
 import { toCsv, toTakeoffCsv } from "../io/csv";
 import type { Annotation, Calibration, SheetMeta } from "../core/types";
 import type { Viewer } from "../core/viewer";
@@ -105,6 +105,20 @@ export function exportersPlugin(options: ExportOptions = {}) {
           const json = JSON.stringify(topics, null, 2);
           await deliver(new Blob([json], { type: "application/json" }), `${stem(v)}-bcf-topics.json`);
           v.bus.emit("notice", { level: "success", message: `Exported ${topics.length} BCF topics.` });
+        },
+      });
+
+      ctx.registerAction({
+        id: "export.bcfzip", label: "Export BCF archive (.bcfzip)", icon: "🗂", group: "io",
+        async run(v) {
+          const topics = toBcfTopics(setOf(v), { documentName: v.doc?.name });
+          if (!topics.length) { v.bus.emit("notice", { level: "warn", message: "No issues to export." }); return; }
+          const bytes = toBcfZip(topics, { projectName: v.doc?.name ?? "Massing" });
+          await deliver(new Blob([bytes as BlobPart], { type: "application/octet-stream" }), `${stem(v)}.bcfzip`);
+          v.bus.emit("notice", {
+            level: "success",
+            message: `Exported ${topics.length} topics as a BCF archive — opens in Solibri, BIMcollab and Revit.`,
+          });
         },
       });
 

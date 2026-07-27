@@ -19,6 +19,11 @@ export interface CompareOptions {
   threshold?: number;
   /** Ignore changed clusters smaller than this many pixels — kills scanner speckle. */
   minCluster?: number;
+  /**
+   * Also search for a uniform scale difference, for sheets re-plotted to another paper size.
+   * Roughly ten times the alignment cost, so it is off unless asked for.
+   */
+  matchScale?: boolean;
   /** Supply the revision to compare against, e.g. from the host's drawing register. */
   loadPrevious?: (viewer: Viewer) => Promise<PdfSource | null>;
 }
@@ -33,6 +38,11 @@ export interface DiffRegion {
 export interface CompareResult {
   /** Translation, in page points, that best aligns the previous sheet onto the current one. */
   offset: { x: number; y: number };
+  /**
+   * Uniform scale applied to the previous sheet before that translation. `1` for the usual case of
+   * a re-issue at the same size; departs from 1 when a sheet was re-plotted to another paper size.
+   */
+  scale: number;
   regions: DiffRegion[];
   /** Fraction of the sheet that changed, 0..1. */
   changedFraction: number;
@@ -181,6 +191,30 @@ async function rasterise(doc: PdfDocument, page: number, resolution: number): Pr
   return { data: out, w, h, scale };
 }
 
+/**
+ * Resample a raster to a new pixel size with bilinear interpolation. Used to try a candidate
+ * scale during alignment — a re-plot from ARCH C to ARCH D is a ~1.29× change that a
+ * translation-only search cannot absorb.
+ */
+function resample(r: Raster, k: number): Raster {
+  if (Math.abs(k - 1) < 1e-6) return r;
+  const w = Math.max(1, Math.round(r.w * k));
+  const h = Math.max(1, Math.round(r.h * k));
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const sy = Math.min(r.h - 1, y / k);
+    const y0 = Math.floor(sy), y1 = Math.min(r.h - 1, y0 + 1), fy = sy - y0;
+    for (let x = 0; x < w; x++) {
+      const sx = Math.min(r.w - 1, x / k);
+      const x0 = Math.floor(sx), x1 = Math.min(r.w - 1, x0 + 1), fx = sx - x0;
+      const a = r.data[y0 * r.w + x0]!, b = r.data[y0 * r.w + x1]!;
+      const c = r.data[y1 * r.w + x0]!, d = r.data[y1 * r.w + x1]!;
+      out[y * w + x] = a * (1 - fx) * (1 - fy) + b * fx * (1 - fy) + c * (1 - fx) * fy + d * fx * fy;
+    }
+  }
+  return { data: out, w, h, scale: r.scale * k };
+}
+
 /** Box-downsample by an integer factor, for the alignment pyramid. */
 function downsample(r: Raster, factor: number): Raster {
   const w = Math.max(1, Math.floor(r.w / factor));
@@ -226,9 +260,10 @@ function misfit(a: Raster, b: Raster, ox: number, oy: number): number {
  * Coarse-to-fine translation search. Plot-origin drift between issues of the same sheet is small
  * but never zero; without this, a diff of two nearly identical sheets lights up every line on it.
  */
-function alignTranslation(a: Raster, b: Raster): { x: number; y: number } {
+function alignTranslation(a: Raster, b: Raster): { x: number; y: number; score: number } {
   const levels = [8, 4, 2, 1];
   let best = { x: 0, y: 0 };
+  let score = Infinity;
   for (const f of levels) {
     const da = f === 1 ? a : downsample(a, f);
     const db = f === 1 ? b : downsample(b, f);
@@ -243,8 +278,43 @@ function alignTranslation(a: Raster, b: Raster): { x: number; y: number } {
       }
     }
     best = { x: bx * f, y: by * f };
+    score = bestScore;
   }
-  return best;
+  return { ...best, score };
+}
+
+/**
+ * Translation *and* uniform scale.
+ *
+ * Candidate scales are tried coarsely and the best one refined, because a full joint search over
+ * scale and translation is quadratically more expensive and the answer is nearly always 1. The
+ * candidates cover the paper-size ratios that actually occur (ARCH C↔D↔E, A1↔A0) plus a little
+ * slack for scanner drift.
+ *
+ * Rotation is deliberately not searched: re-issues are essentially never rotated, and adding a
+ * third parameter to a brute-force search costs more than it returns. A skewed *scan* needs proper
+ * phase correlation rather than a wider grid.
+ */
+function alignSimilarity(a: Raster, b: Raster, trySize: boolean): { x: number; y: number; scale: number } {
+  const flat = alignTranslation(a, b);
+  if (!trySize) return { x: flat.x, y: flat.y, scale: 1 };
+
+  let best = { x: flat.x, y: flat.y, scale: 1, score: flat.score };
+  const coarse = [0.707, 0.773, 0.816, 0.94, 0.97, 1.03, 1.06, 1.225, 1.294, 1.414];
+  for (const k of coarse) {
+    const scaled = resample(b, k);
+    const t = alignTranslation(a, scaled);
+    if (t.score < best.score) best = { x: t.x, y: t.y, scale: k, score: t.score };
+  }
+  // Refine around whichever scale won, unless it was the identity.
+  if (best.scale !== 1) {
+    for (const d of [-0.02, -0.01, 0.01, 0.02]) {
+      const k = best.scale + d;
+      const t = alignTranslation(a, resample(b, k));
+      if (t.score < best.score) best = { x: t.x, y: t.y, scale: k, score: t.score };
+    }
+  }
+  return { x: best.x, y: best.y, scale: best.scale };
 }
 
 /** Union-find over a coarse grid of changed cells, so adjacent changes become one region. */
@@ -306,11 +376,14 @@ export async function comparePages(
   const threshold = options.threshold ?? 0.28;
   const minCluster = options.minCluster ?? 24;
 
-  const [a, b] = await Promise.all([
+  const [a, rawB] = await Promise.all([
     rasterise(current, currentPage, resolution),
     rasterise(previous, previousPage, resolution),
   ]);
-  const shift = alignTranslation(a, b);
+  const fit = alignSimilarity(a, rawB, options.matchScale ?? false);
+  // Resample once with the winning scale, then treat the rest as a pure translation.
+  const b = resample(rawB, fit.scale);
+  const shift = { x: fit.x, y: fit.y };
 
   const changed = new Uint8Array(a.w * a.h);
   let count = 0;
@@ -340,6 +413,7 @@ export async function comparePages(
 
   return {
     offset: { x: shift.x / a.scale, y: shift.y / a.scale },
+    scale: fit.scale,
     regions,
     changedFraction: count / (a.w * a.h),
   };
@@ -352,11 +426,13 @@ export async function comparePages(
 async function buildOverlay(v: Viewer, previous: PdfDocument, options: CompareOptions): Promise<HTMLCanvasElement> {
   const page = v.page;
   const prevPage = Math.min(page, previous.numPages);
-  const [a, b] = await Promise.all([
+  const [a, rawB] = await Promise.all([
     rasterise(v.doc!, page, options.resolution ?? 1400),
     rasterise(previous, prevPage, options.resolution ?? 1400),
   ]);
-  const shift = alignTranslation(a, b);
+  const fit = alignSimilarity(a, rawB, options.matchScale ?? false);
+  const b = resample(rawB, fit.scale);
+  const shift = { x: fit.x, y: fit.y };
 
   const canvas = document.createElement("canvas");
   canvas.className = "mpdf-compare-overlay";

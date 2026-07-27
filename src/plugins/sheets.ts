@@ -7,6 +7,7 @@
  * sets and typed by hand only for scans.
  */
 import { definePlugin } from "../core/plugin";
+import { activate, refreshRovingTabstops, rovingFocus } from "../core/a11y";
 import type { Discipline, SheetKind, SheetMeta } from "../core/types";
 import type { Viewer } from "../core/viewer";
 import type { TextItem } from "../core/document";
@@ -146,6 +147,8 @@ function mountIndex(host: HTMLElement, v: Viewer, options: SheetsOptions): () =>
   search.className = "mpdf-input";
   search.placeholder = "Sheet number or title…";
   const list = document.createElement("div");
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Sheets");
   list.className = "mpdf-sheet-list";
   host.append(search, list);
 
@@ -201,12 +204,18 @@ function mountIndex(host: HTMLElement, v: Viewer, options: SheetsOptions): () =>
         card.appendChild(badge);
       }
       card.append(thumb, cap);
-      card.onclick = () => void v.goToPage(p);
+      activate(card, () => void v.goToPage(p), {
+        role: "option",
+        current: v.page === p,
+        label: `Sheet ${meta?.number ?? p}${meta?.title ? `, ${meta.title}` : ""}, page ${p}`,
+        roving: true,
+      });
       list.appendChild(card);
       cards.set(p, thumb);
       observer?.observe(thumb);
       if (!observer) void paintThumb(thumb, v, width);
     }
+    refreshRovingTabstops(list, '[role="option"]');
   };
 
   search.oninput = render;
@@ -220,7 +229,8 @@ function mountIndex(host: HTMLElement, v: Viewer, options: SheetsOptions): () =>
     }),
   ];
   render();
-  return () => { offs.forEach((off) => off()); observer?.disconnect(); };
+  const stopRoving = rovingFocus(list, '[role="option"]');
+  return () => { offs.forEach((off) => off()); stopRoving(); observer?.disconnect(); };
 }
 
 /** Rasterise a small preview into a thumbnail slot, once it scrolls into view. */

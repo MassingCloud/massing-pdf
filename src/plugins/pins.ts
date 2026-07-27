@@ -7,6 +7,7 @@
  * dying inside the PDF.
  */
 import { definePlugin } from "../core/plugin";
+import { activate, refreshRovingTabstops, rovingFocus } from "../core/a11y";
 import { STATUS_COLORS } from "../core/types";
 import type { Annotation, AnnotStatus } from "../core/types";
 import type { Viewer } from "../core/viewer";
@@ -155,6 +156,8 @@ function mountIssues(
   }
   bar.appendChild(select);
   const list = document.createElement("div");
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Issue pins");
   list.className = "mpdf-issues-list";
   host.append(bar, list);
 
@@ -215,13 +218,14 @@ function mountIssues(
       tools.append(edit, cycle, del);
 
       row.append(badge, main, tools);
-      row.onclick = (e) => {
+      activate(row, (e) => {
         if ((e.target as HTMLElement).closest("button")) return;
         v.store.select(a.id);
         void v.goToAnnotation(a, { zoom: false });
-      };
+      }, { role: "option", selected: v.store.isSelected(a.id), label: pinLabel(a), roving: true });
       list.appendChild(row);
     }
+    refreshRovingTabstops(list, '[role="option"]');
     void types;
   };
 
@@ -231,7 +235,21 @@ function mountIssues(
     v.on("annot:removed", render), v.on("annot:reset", render), v.on("annot:selected", render),
   ];
   render();
-  return () => offs.forEach((off) => off());
+  const stopRoving = rovingFocus(list, '[role="option"]');
+  return () => { offs.forEach((off) => off()); stopRoving(); };
+}
+
+/**
+ * What a screen reader says for a pin row.
+ *
+ * The visible row leans on a coloured badge for status and priority, which conveys nothing to a
+ * reader and nothing to anyone who cannot distinguish the colours.
+ */
+function pinLabel(a: Annotation): string {
+  const parts = [`Pin on page ${a.page}`, a.status.replace("_", " ")];
+  if (a.priority) parts.push(`${a.priority} priority`);
+  if (a.subject) parts.push(a.subject);
+  return parts.join(", ");
 }
 
 function iconButton(glyph: string, title: string, onClick: () => void | Promise<void>): HTMLButtonElement {

@@ -97,7 +97,7 @@ describe("the save queue", () => {
   it("coalesces edits and sends one batch", async () => {
     const { adapter, batches } = recordingAdapter();
     const { store } = await harness(adapter);
-    const a = store.add(rect("one"));
+    const a = store.add(rect("one"))!;
     store.update(a.id, { subject: "two" });
     await settle();
     expect(batches).toHaveLength(1);
@@ -109,7 +109,7 @@ describe("the save queue", () => {
     // markup still renders locally, so nothing looks wrong until someone else opens the sheet.
     const { adapter, batches } = recordingAdapter(() => new Error("network down"));
     const { store } = await harness(adapter);
-    store.add(rect("survives a failure"));
+    store.add(rect("survives a failure"))!;
     await until(() => batches.length > 1);
 
     const resent = batches.slice(1).flatMap((b) => upserted(b)).map((m) => m.annot.subject);
@@ -128,9 +128,9 @@ describe("a rejected write", () => {
     const { adapter, batches } = recordingAdapter(() => conflict(mine!.id, { ...mine!, version: 9, subject: "theirs" }));
     const { store } = await harness(adapter);
 
-    mine = store.add(rect("conflicted"));
+    mine = store.add(rect("conflicted"))!;
     store.update(mine.id, { subject: "my edit" });
-    const other = store.add(rect("innocent bystander"));
+    const other = store.add(rect("innocent bystander"))!;
     await settle();
 
     // The restored batch retries by itself; the bystander must reach the server on one of them.
@@ -144,7 +144,7 @@ describe("a rejected write", () => {
     const { adapter, batches } = recordingAdapter(() => conflict(mine!.id));
     const { store } = await harness(adapter);
 
-    mine = store.add(rect("conflicted"));
+    mine = store.add(rect("conflicted"))!;
     store.setCalibration(
       { page: 1, unitsPerPoint: 1 / 6, unit: "ft", source: "preset", label: '1/8" = 1\'-0"' }, 1);
     await settle();
@@ -159,7 +159,7 @@ describe("a rejected write", () => {
     const { adapter } = recordingAdapter(() => conflict(mine!.id, { ...mine!, version: 9, subject: "theirs" }));
     const { store } = await harness(adapter);
 
-    mine = store.add(rect("conflicted"));
+    mine = store.add(rect("conflicted"))!;
     store.update(mine.id, { subject: "my edit" });
     await settle();
 
@@ -171,7 +171,7 @@ describe("a rejected write", () => {
     const { adapter } = recordingAdapter(() => conflict(mine!.id, { ...mine!, version: 9, subject: "theirs" }));
     const { store } = await harness(adapter, { onConflictResolve: "mine" });
 
-    mine = store.add(rect("conflicted"));
+    mine = store.add(rect("conflicted"))!;
     store.update(mine.id, { subject: "my edit" });
     await settle();
 
@@ -188,7 +188,7 @@ describe("a rejected write", () => {
     const { adapter, batches } = recordingAdapter(() => conflict(mine!.id));
     const { store } = await harness(adapter, { onConflictResolve: "mine" });
 
-    mine = store.add(rect("conflicted"));
+    mine = store.add(rect("conflicted"))!;
     store.update(mine.id, { subject: "my edit" });
     await settle();
 
@@ -203,7 +203,7 @@ describe("a rejected write", () => {
     const onConflict = vi.fn(async (c: { mine?: Annotation }) => c.mine ?? null);
     const { store } = await harness(adapter, { onConflictResolve: "ask", onConflict });
 
-    mine = store.add(rect("conflicted"));
+    mine = store.add(rect("conflicted"))!;
     store.update(mine.id, { subject: "my edit" });
     await settle();
 
@@ -217,7 +217,7 @@ describe("a rejected write", () => {
     const { adapter } = recordingAdapter(() => conflict(mine!.id, { ...mine!, version: 9, subject: "theirs" }));
     const { store } = await harness(adapter, { onConflictResolve: "ask", onConflict: async () => null });
 
-    mine = store.add(rect("conflicted"));
+    mine = store.add(rect("conflicted"))!;
     store.update(mine.id, { subject: "my edit" });
     await settle();
 

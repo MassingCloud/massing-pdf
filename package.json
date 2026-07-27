@@ -49,6 +49,7 @@
     "build": "tsc -p tsconfig.build.json && vite build",
     "check": "npm run typecheck && npm run lint && npm run test",
     "check:all": "npm run check && npm run test:e2e",
+    "check:licences": "node scripts/check-licences.mjs",
     "check:package": "node scripts/check-package.mjs",
     "demo:build": "vite build --mode demo",
     "dev": "vite",

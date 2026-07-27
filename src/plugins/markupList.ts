@@ -7,6 +7,7 @@
  * "hide everything except open structural comments" hides them on the sheet too.
  */
 import { definePlugin } from "../core/plugin";
+import { activate, refreshRovingTabstops, rovingFocus } from "../core/a11y";
 import { facets, isEmptyFilter } from "../core/filter";
 import { formatQuantity } from "../core/units";
 import { STATUS_COLORS, type Annotation, type AnnotFilter, type AnnotStatus } from "../core/types";
@@ -70,6 +71,11 @@ function mount(host: HTMLElement, v: Viewer, options: MarkupListOptions): () => 
   chips.className = "mpdf-chips";
   const rows = document.createElement("div");
   rows.className = "mpdf-list";
+  // A listbox, so a screen reader announces position and count, and arrows move within it — two
+  // hundred markups should be one stop in the tab order, not two hundred.
+  rows.setAttribute("role", "listbox");
+  rows.setAttribute("aria-label", "Markups");
+  rows.setAttribute("aria-multiselectable", "true");
   const summary = document.createElement("div");
   summary.className = "mpdf-list-summary";
 
@@ -174,14 +180,17 @@ function mount(host: HTMLElement, v: Viewer, options: MarkupListOptions): () => 
       }
       rows.appendChild(rowFor(a, v));
     }
+    // Rebuilding the rows throws away the previous tabindex state; put a single tab stop back.
+    refreshRovingTabstops(rows, '[role="option"]');
   };
 
   const offs = [
     v.on("annot:added", render), v.on("annot:updated", render), v.on("annot:removed", render),
     v.on("annot:reset", render), v.on("annot:selected", render), v.on("filter:changed", render),
   ];
+  const stopRoving = rovingFocus(rows, '[role="option"]');
   render();
-  return () => { offs.forEach((off) => off()); clearTimeout(searchTimer); };
+  return () => { offs.forEach((off) => off()); stopRoving(); clearTimeout(searchTimer); };
 }
 
 function rowFor(a: Annotation, v: Viewer): HTMLElement {
@@ -232,10 +241,16 @@ function rowFor(a: Annotation, v: Viewer): HTMLElement {
   qty.textContent = formatQuantity(a.quantity, { feetInches: v.feetInches });
 
   row.append(swatch, main, qty);
-  row.onclick = (e) => {
-    v.store.select(a.id, e.shiftKey);
+  activate(row, (e) => {
+    v.store.select(a.id, (e as MouseEvent).shiftKey === true);
     void v.goToAnnotation(a, { zoom: false });
-  };
+  }, {
+    role: "option",
+    selected: v.store.isSelected(a.id),
+    // The swatch carries status as colour alone, which fails on its own; say it instead.
+    label: `${a.kind} on page ${a.page}, ${a.status}${a.subject ? `: ${a.subject}` : ""}, by ${a.author}`,
+    roving: true,
+  });
   row.ondblclick = () => v.bus.emit("annot:activated", { annot: a });
   return row;
 }

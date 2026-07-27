@@ -26,7 +26,7 @@ const rect = (over: Partial<AnnotationDraft> = {}): AnnotationDraft => ({
 describe("materialisation", () => {
   it("fills identity, authorship and defaults", () => {
     const { store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     expect(a.id).toMatch(/^an_/);
     expect(a.author).toBe("A. Reviewer");
     expect(a.org).toBe("Massing");
@@ -37,7 +37,7 @@ describe("materialisation", () => {
 
   it("derives the page-normalised anchor from the first point", () => {
     const { store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     expect(a.nx).toBeCloseTo(100 / PAGE.width, 9);
     expect(a.ny).toBeCloseTo(200 / PAGE.height, 9);
   });
@@ -45,7 +45,7 @@ describe("materialisation", () => {
   it("copies the caller's points rather than aliasing them", () => {
     const { store } = build();
     const points = [{ x: 1, y: 2 }, { x: 3, y: 4 }];
-    const a = store.add({ kind: "rect", page: 1, points });
+    const a = store.add({ kind: "rect", page: 1, points })!;
     points[0]!.x = 999;
     expect(a.points[0]!.x).toBe(1);
     expect(store.get(a.id)!.points[0]!.x).toBe(1);
@@ -53,14 +53,14 @@ describe("materialisation", () => {
 
   it("does not let an explicit undefined punch through a default", () => {
     const { store } = build();
-    const a = store.add({ ...rect(), status: undefined, author: undefined });
+    const a = store.add({ ...rect(), status: undefined, author: undefined })!;
     expect(a.status).toBe("open");
     expect(a.author).toBe("A. Reviewer");
   });
 
   it("honours an explicit id and status", () => {
     const { store } = build();
-    const a = store.add(rect({ id: "fixed-1", status: "resolved" }));
+    const a = store.add(rect({ id: "fixed-1", status: "resolved" }))!;
     expect(a.id).toBe("fixed-1");
     expect(a.status).toBe("resolved");
   });
@@ -71,13 +71,13 @@ describe("events", () => {
     const { bus, store } = build();
     const spy = vi.fn();
     bus.on("annot:added", spy);
-    store.add(rect());
+    store.add(rect())!;
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it("emits an update carrying both the before and after records", () => {
     const { bus, store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     const spy = vi.fn();
     bus.on("annot:updated", spy);
     store.update(a.id, { subject: "Check dimension" });
@@ -93,7 +93,7 @@ describe("events", () => {
     const good = vi.fn();
     bus.on("annot:added", () => { throw new Error("boom"); });
     bus.on("annot:added", good);
-    store.add(rect());
+    store.add(rect())!;
     expect(good).toHaveBeenCalledTimes(1);
     errors.mockRestore();
   });
@@ -103,7 +103,7 @@ describe("events", () => {
     const later = vi.fn();
     const off = bus.on("annot:added", () => off());
     bus.on("annot:added", later);
-    store.add(rect());
+    store.add(rect())!;
     expect(later).toHaveBeenCalledTimes(1);
   });
 });
@@ -111,7 +111,7 @@ describe("events", () => {
 describe("updates", () => {
   it("bumps the version and updatedAt by default", async () => {
     const { store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     await new Promise((r) => setTimeout(r, 2));
     const b = store.update(a.id, { note: "hi" })!;
     expect(b.version).toBe(2);
@@ -120,14 +120,14 @@ describe("updates", () => {
 
   it("can suppress the version bump for intermediate drag frames", () => {
     const { store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     const b = store.update(a.id, { points: [{ x: 0, y: 0 }, { x: 5, y: 5 }] }, { bump: false })!;
     expect(b.version).toBe(1);
   });
 
   it("recomputes the normalised anchor when geometry moves", () => {
     const { store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     const b = store.update(a.id, { points: [{ x: 306, y: 396 }, { x: 400, y: 500 }] })!;
     expect(b.nx).toBeCloseTo(0.5, 6);
     expect(b.ny).toBeCloseTo(0.5, 6);
@@ -135,21 +135,21 @@ describe("updates", () => {
 
   it("refuses to edit a locked markup", () => {
     const { store } = build();
-    const a = store.add(rect({ locked: true }));
+    const a = store.add(rect({ locked: true }))!;
     store.update(a.id, { subject: "nope" });
     expect(store.get(a.id)!.subject).toBeUndefined();
   });
 
   it("refuses to delete a locked markup", () => {
     const { store } = build();
-    const a = store.add(rect({ locked: true }));
+    const a = store.add(rect({ locked: true }))!;
     expect(store.remove(a.id)).toHaveLength(0);
     expect(store.size).toBe(1);
   });
 
   it("still allows unlocking a locked markup", () => {
     const { store } = build();
-    const a = store.add(rect({ locked: true }));
+    const a = store.add(rect({ locked: true }))!;
     store.update(a.id, { locked: false });
     expect(store.get(a.id)!.locked).toBe(false);
   });
@@ -158,8 +158,8 @@ describe("updates", () => {
 describe("selection", () => {
   it("replaces the selection by default and extends when additive", () => {
     const { store } = build();
-    const a = store.add(rect());
-    const b = store.add(rect());
+    const a = store.add(rect())!;
+    const b = store.add(rect())!;
     store.select(a.id);
     expect(store.selectedIds()).toEqual([a.id]);
     store.select(b.id, true);
@@ -170,7 +170,7 @@ describe("selection", () => {
 
   it("drops a deleted markup from the selection", () => {
     const { store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     store.select(a.id);
     store.remove(a.id);
     expect(store.selectedIds()).toEqual([]);
@@ -186,7 +186,7 @@ describe("selection", () => {
 describe("undo and redo", () => {
   it("reverses an add", () => {
     const { store } = build();
-    store.add(rect());
+    store.add(rect())!;
     expect(store.size).toBe(1);
     store.undo();
     expect(store.size).toBe(0);
@@ -196,7 +196,7 @@ describe("undo and redo", () => {
 
   it("reverses a delete", () => {
     const { store } = build();
-    const a = store.add(rect());
+    const a = store.add(rect())!;
     store.remove(a.id);
     store.undo();
     expect(store.get(a.id)).toBeDefined();
@@ -204,7 +204,7 @@ describe("undo and redo", () => {
 
   it("reverses an update to the prior field values", () => {
     const { store } = build();
-    const a = store.add(rect({ subject: "first" }));
+    const a = store.add(rect({ subject: "first" }))!;
     store.update(a.id, { subject: "second" });
     store.undo();
     expect(store.get(a.id)!.subject).toBe("first");
@@ -220,16 +220,16 @@ describe("undo and redo", () => {
 
   it("forks the timeline: a new edit clears the redo stack", () => {
     const { store } = build();
-    store.add(rect());
+    store.add(rect())!;
     store.undo();
     expect(store.canRedo).toBe(true);
-    store.add(rect());
+    store.add(rect())!;
     expect(store.canRedo).toBe(false);
   });
 
   it("does not record undo steps for changes made while replaying", () => {
     const { store } = build();
-    store.add(rect());
+    store.add(rect())!;
     store.undo();
     store.redo();
     store.undo();
@@ -242,7 +242,7 @@ describe("undo and redo", () => {
     const store = new AnnotationStore({
       bus, author: () => "x", pageSize: () => PAGE, undoLimit: 3,
     });
-    for (let i = 0; i < 6; i++) store.add(rect());
+    for (let i = 0; i < 6; i++) store.add(rect())!;
     let undone = 0;
     while (store.canUndo) { store.undo(); undone++; }
     expect(undone).toBe(3);

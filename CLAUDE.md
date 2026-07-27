@@ -30,7 +30,7 @@ framework here would force one on every consumer.
 ## Layout
 ```
 src/core/      viewer (kernel) · document · renderer · textLayer · store · events · plugin
-               coords · geometry · units · filter · types
+               coords · geometry · units · filter · types · policy · a11y · url
 src/render/    svg.ts — Annotation → SVG, page space
 src/plugins/   markup · measure · stamps · pins · markupList · search · specs · compare
                migration · sheets · historical · attachments · ocr · views · toolbar
@@ -39,9 +39,11 @@ src/adapters/  memory · indexeddb · rest · offline
 src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
 scripts/       check-package.mjs — manifest entry points resolve to built files
-test/          226 unit tests (vitest)
-e2e/           113 browser tests (playwright) — rendering, gestures, touch, pen, compare, adapters
-               runs on chromium, chromium-touch, webkit, firefox
+               check-licences.mjs — no copyleft anywhere in the installed tree
+test/          350 unit tests (vitest)
+e2e/           browser tests (playwright) — rendering, gestures, touch, pen, compare, adapters,
+               keyboard/ARIA (a11y.spec.ts), strict-CSP (csp.spec.ts, against the *built* demo)
+               runs on chromium, chromium-touch, webkit, firefox, csp
 ```
 
 ## Commands
@@ -52,6 +54,7 @@ npm run check      typecheck + lint + unit tests
 npm run test:e2e   playwright (needs Node 20.6+; this machine's 20.3.1 is too old)
 npm run check:all  check + e2e
 npm run check:package  manifest entry points resolve (run after build)
+npm run check:licences no copyleft in the tree (--list for the breakdown)
 npm run build      library → dist/
 npm run demo:build standalone demo → dist-demo/
 ```
@@ -87,6 +90,17 @@ npm run demo:build standalone demo → dist-demo/
 - **Firefox will not launch on this machine** (`spawn UNKNOWN`, a Windows environment issue, not a
   code one). It runs in CI on Linux. Locally, verify with
   `--project=chromium --project=chromium-touch --project=webkit`.
+- **A markup is untrusted input.** Records arrive from the server, from XFDF/BCF imports and from
+  other users. Text goes in with `textContent`, never `innerHTML`; any URL reaching `window.open`
+  or a `src` goes through `core/url.ts` first. A record carrying `javascript:` in an attachment URL
+  was a live stored-XSS until that was added.
+- **Permissions live in the store, not the toolbar.** `core/policy.ts` gates `add`/`update`/
+  `remove`/`setCalibration`/`setSheet`, because a check in the UI is bypassed by a host script, an
+  import or an adapter. `store.add()` returns `undefined` when refused — callers must handle it;
+  `viewer.addAnnotation()` throws instead, being the host-facing entry point.
+- **Any clickable element must go through `activate()`** from `core/a11y.ts`. A `div` with an
+  `onclick` is unreachable by keyboard and silent to a screen reader, and it is the default thing to
+  write. `e2e/a11y.spec.ts` drives real keys and will catch it.
 - **Bash heredocs here collapse doubled backslashes**, so a scripted edit meant to write a regex
   word-boundary or a newline escape into source lands a literal control character instead — and the
   regex then silently matches nothing. Prefer the Edit tool for anything containing backslashes; if

@@ -181,6 +181,29 @@ canvas limits and every cloud API's per-image cap.
 **Which engine to pick is a real decision, and it differs for drawings and specs** — see
 [docs/ocr.md](docs/ocr.md).
 
+### Access control and audit
+
+A capability check enforced in the *store* — the seam every mutation crosses, so a host script, an
+import or a storage adapter is gated the same as a toolbar click. Editing your own markup and
+editing a colleague's are separate permissions, because on a review they are separate acts. Refusals
+carry a reason, which is shown to the user and written to the audit trail along with every allowed
+act. Client-side checks are advisory and the server stays the authority; this makes the interface
+agree with it and records every attempt either way. See [docs/security.md](docs/security.md).
+
+### Accessible, and tested that way
+
+Every list is a single tab stop with arrow-key navigation, Enter and Space activation, and an
+accessible name carrying what the colour swatch conveys visually. Landmarks, `aria-pressed` on armed
+tools, live-region announcements for page and status changes, `prefers-reduced-motion`, and Windows
+High Contrast support. Verified by driving real keys in a real browser, not by asserting attributes
+exist. The drawing canvas itself is not keyboard-navigable — [docs/accessibility.md](docs/accessibility.md)
+says so plainly, along with what else is untested.
+
+### Runs under a strict CSP
+
+No `unsafe-eval`, no inline script. Checked on every CI run by loading the built demo behind a real
+policy header and asserting a drawing still rasterises with zero violations.
+
 ### Preservation mode
 
 Provenance, a tracing overlay for checking a redraw against its source, and — more importantly —
@@ -312,13 +335,14 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 ```bash
 npm install
 npm run dev        # demo at :5173
-npm test           # 226 unit tests
-npm run test:e2e   # 113 browser tests (Playwright: Chromium, WebKit, Firefox)
+npm test           # 350 unit tests
+npm run test:e2e   # browser tests (Playwright: Chromium, WebKit, Firefox, touch/pen, strict-CSP)
 npm run check      # typecheck + lint + unit tests
 npm run check:all  # the above, plus the browser suite
 npm run build      # library → dist/
 npm run demo:build # standalone demo → dist-demo/
 npm run check:package  # entry points in package.json resolve to built files
+npm run check:licences # no copyleft anywhere in the installed tree
 ```
 
 Requires Node 18.18+. `pdfjs-dist` and `pdf-lib` are peer dependencies and stay external in the
@@ -328,12 +352,17 @@ worker, since two versions in one page fail in confusing ways.
 ## Status
 
 Every functional area of the product spec is implemented, and both halves of the test pyramid are in
-place: **226 unit tests** for the pure logic, and **113 Playwright tests** for everything that needs
-a real browser — rasterisation, the pointer gesture loop, touch and pinch, pen pressure and palm
-rejection, the compare pipeline, and the IndexedDB adapters, none of which a headless DOM can reach.
+place: **350 unit tests** for the pure logic, and a Playwright suite for everything that needs a
+real browser — rasterisation, the pointer gesture loop, touch and pinch, pen pressure and palm
+rejection, keyboard operation, the compare pipeline, and the IndexedDB adapters, none of which a
+headless DOM can reach.
 
 The browser suite runs on Chromium, WebKit and Firefox, because the things it covers — per-canvas
 size limits, pointer and touch dispatch, IndexedDB semantics — are precisely where engines differ.
+Two claims that are easy to assert and hard to keep are verified rather than stated: the interface
+is driven by real key presses, and the strict-CSP suite loads the built bundle behind a real policy
+header. Dependency licences and the manifest's own entry points are checked on every run for the
+same reason.
 
 Not yet published to npm: the package is built and validated on every release run, but the
 `@massingcloud` scope has to be claimed by hand first. See
@@ -350,6 +379,30 @@ tools trust. Known limitations are listed there too — the text layer switches 
 rotation, spec parsing is heuristic with no manual-correction path, and the ZIP writer stores rather
 than deflates.
 
+## Documentation
+
+| | |
+|---|---|
+| [architecture.md](docs/architecture.md) | the kernel, the plugin seam, and why it is shaped this way |
+| [plugin-api.md](docs/plugin-api.md) | writing a tool, action, panel or renderer |
+| [data-model.md](docs/data-model.md) | the annotation record, and what each field is for |
+| [integration-massing.md](docs/integration-massing.md) | dropping this in for `openPdfTakeoff` |
+| [security.md](docs/security.md) | CSP, the permission model, the audit trail, credentials |
+| [accessibility.md](docs/accessibility.md) | conformance, verified and unverified, stated plainly |
+| [browser-support.md](docs/browser-support.md) | what is supported, and what each claim rests on |
+| [versioning.md](docs/versioning.md) | what semver covers here, and what it does not |
+| [publishing.md](docs/publishing.md) | releasing to npm |
+| [licences.md](docs/licences.md) | the dependency licence audit |
+| [ocr.md](docs/ocr.md) | choosing and wiring an OCR provider |
+| [roadmap.md](docs/roadmap.md) | what is deliberately not built, and known limitations |
+
+## Security
+
+Report vulnerabilities privately — see [SECURITY.md](SECURITY.md), which also sets out what the
+library treats as untrusted (PDF bytes, markup records from any source, OCR responses) and what it
+explicitly does not defend against.
+
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Every dependency is Apache-2.0 or MIT-family, enforced on each CI run
+rather than asserted: see [docs/licences.md](docs/licences.md).

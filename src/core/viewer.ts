@@ -21,6 +21,8 @@ import type {
 } from "./plugin";
 import type { Annotation, AnnotationDraft, AnnotKind, Pt } from "./types";
 import { POINT_KINDS } from "./types";
+import { createLiveRegion } from "./a11y";
+import { PermissionError, Policy, type AuditSink, type PermissionCheck } from "./policy";
 
 export interface ViewerOptions {
   /** Where to mount. The viewer takes over this element's contents. */
@@ -50,6 +52,20 @@ export interface ViewerOptions {
    * pressure samples are kept on the markup either way.
    */
   penPressure?: boolean;
+  /**
+   * Decide whether the current user may do something. Absent means everything is allowed.
+   *
+   * Enforced in the store, not in the toolbar — see `core/policy.ts` for why that distinction
+   * matters, and for what a client-side check can and cannot promise.
+   */
+  permissions?: PermissionCheck;
+  /**
+   * Receives a record of every gated act, allowed or refused.
+   *
+   * Construction markups become contract evidence, so this is usually a compliance requirement
+   * rather than analytics. Write it to the host's own audit pipeline.
+   */
+  audit?: AuditSink;
   /** Plugins to install at construction. More can be added with `use()` before `load()`. */
   plugins?: ViewerPlugin[];
 }
@@ -145,12 +161,34 @@ export class Viewer {
   private pinchPending = false;
   /** OCR output per page, for scans whose PDF carries no text layer. */
   private recognised = new Map<number, TextItem[]>();
+  /**
+   * Screen-reader announcements.
+   *
+   * Everything this viewer tells the user — a save failing, a tool arming, a page changing — is
+   * conveyed by a small visual change somewhere. None of it reaches a reader without this.
+   */
+  private live: ReturnType<typeof createLiveRegion>;
+  /** Permission gate and audit trail. Inert unless the host configured one. */
+  readonly policy: Policy;
 
   constructor(opts: ViewerOptions) {
     this.opts = opts;
     this.el = buildShell(opts.container);
+    this.live = createLiveRegion(this.el.root);
+    // Notices are the viewer's own voice; route them so they are heard, not only seen.
+    this.bus.on("notice", ({ level, message }) => {
+      this.live.announce(message, level === "error" ? "assertive" : "polite");
+    });
+    this.policy = new Policy({
+      actor: () => this.opts.author ?? "unknown",
+      documentId: () => this.doc?.fingerprint,
+      ...(opts.permissions ? { check: opts.permissions } : {}),
+      ...(opts.audit ? { audit: opts.audit } : {}),
+      onDeny: (reason) => this.bus.emit("notice", { level: "warn", message: reason }),
+    });
     this.store = new AnnotationStore({
       bus: this.bus,
+      ...(opts.permissions || opts.audit ? { policy: this.policy } : {}),
       author: () => this.opts.author ?? "unknown",
       org: () => this.opts.org,
       pageSize: (p) => this.doc?.pageInfoSync(p),
@@ -214,6 +252,7 @@ export class Viewer {
     for (const fn of this.cleanups.splice(0)) { try { fn(); } catch (e) { console.error(e); } }
     for (const p of this.plugins) { try { p.teardown?.(); } catch (e) { console.error(e); } }
     this.closeDoc();
+    this.live.destroy();
     this.bus.clear();
     this.el.root.remove();
   }
@@ -242,7 +281,20 @@ export class Viewer {
     this.el.pages.style.cursor = t?.cursor ?? (t ? "crosshair" : "default");
     this.applyTouchAction();
     this.syncTextLayers();
+    // Arming a tool changes the cursor and highlights a button. Neither is perceivable without
+    // sight, and a reviewer needs to know which tool a keypress just selected.
+    this.announce(t ? `${t.label} tool selected` : "Tool cleared");
     this.bus.emit("tool:changed", { id: this.activeToolId });
+  }
+
+  /**
+   * Say something to a screen reader.
+   *
+   * Public because a plugin's status changes are just as invisible as the kernel's, and a host
+   * replacing the toolbar still needs a way to be heard.
+   */
+  announce(message: string, urgency: "polite" | "assertive" = "polite"): void {
+    this.live.announce(message, urgency);
   }
 
   async runAction(id: string): Promise<void> {
@@ -335,6 +387,7 @@ export class Viewer {
     const layer = this.layers.get(page);
     this._page = page;
     if (layer) this.el.scroll.scrollTop = layer.wrap.offsetTop - 8;
+    this.announce(`Page ${page} of ${this.numPages || 1}`);
     this.bus.emit("page:changed", { page });
     this.emitView();
     this.updateVisible();
@@ -1107,7 +1160,9 @@ export class Viewer {
     const annot = this.store.add({ ...draft, page: draft.page ?? page });
     if (!tool.sticky) this.setTool(null);
     this.redraw(page);
-    this.store.select(annot.id);
+    // Undefined means the policy refused. The store has already announced why via the audit sink
+    // and the notice; there is simply nothing to select.
+    if (annot) this.store.select(annot.id);
   }
 
   /**
@@ -1143,6 +1198,7 @@ export class Viewer {
     const annot = this.store.add({ ...draft, page: draft.page ?? selection.page });
     clearSelection();
     if (!tool.sticky) this.setTool(null);
+    if (!annot) return;
     this.redraw(annot.page);
     this.store.select(annot.id);
   }
@@ -1178,6 +1234,10 @@ export class Viewer {
       if (q) draft.quantity = q;
     }
     const a = this.store.add(draft);
+    // This is the host's scripting entry point, where a silent no-op returning `undefined` would
+    // surface later as an unrelated error. A tool commit can shrug a refusal off; a caller that
+    // asked for a markup and got nothing needs to be told.
+    if (!a) throw new PermissionError("Creating a markup was refused by the permission check.");
     this.redraw(draft.page);
     return a;
   }
@@ -1228,21 +1288,39 @@ function buildShell(container: HTMLElement): Viewer["el"] {
   container.innerHTML = "";
   const root = document.createElement("div");
   root.className = "mpdf-root";
+  // Landmarks, so a screen-reader user can jump between the toolbar, the drawing and the panels
+  // instead of arrowing through everything in between.
+  root.setAttribute("role", "application");
+  root.setAttribute("aria-label", "Drawing review");
+
   const toolbar = document.createElement("div");
   toolbar.className = "mpdf-toolbar";
+  toolbar.setAttribute("role", "toolbar");
+  toolbar.setAttribute("aria-label", "Markup tools");
+
   const body = document.createElement("div");
   body.className = "mpdf-body";
+
   const left = document.createElement("aside");
   left.className = "mpdf-side mpdf-side-left";
+  left.setAttribute("aria-label", "Sheets and navigation");
+
   const scroll = document.createElement("div");
   scroll.className = "mpdf-scroll";
+  scroll.setAttribute("role", "region");
+  scroll.setAttribute("aria-label", "Drawing");
+
   const pages = document.createElement("div");
   pages.className = "mpdf-pages";
   pages.style.setProperty("--mpdf-page-gap", `${PAGE_GAP}px`);
+
   const right = document.createElement("aside");
   right.className = "mpdf-side mpdf-side-right";
+  right.setAttribute("aria-label", "Markups and review");
+
   const status = document.createElement("div");
   status.className = "mpdf-status";
+  status.setAttribute("role", "status");
   scroll.appendChild(pages);
   body.append(left, scroll, right);
   root.append(toolbar, body, status);

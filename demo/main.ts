@@ -6,6 +6,7 @@
  * demonstrate the adapter contract — swapping `IndexedDbAdapter` for `RestAdapter` (or wrapping
  * both in `OfflineAdapter`) is the only change needed to point it at a real server.
  */
+import * as lib from "../src/index";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
   IndexedDbAdapter, createViewer, indexedDbAvailable, type StorageAdapter, MemoryAdapter,
@@ -100,4 +101,6 @@ window.addEventListener("drop", (e) => {
 });
 
 // Expose the viewer for console poking and for the smoke test.
-Object.assign(window, { viewer });
+// The viewer, and the library namespace beside it. The namespace matters for the built demo: the
+// CSP suite runs against the bundle, where there is no `/src/index.ts` to import at runtime.
+Object.assign(window, { viewer, massingPdf: lib });

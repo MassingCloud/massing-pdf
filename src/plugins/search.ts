@@ -7,6 +7,7 @@
  * about it, and the sheet register tells you which drawing you are on.
  */
 import { definePlugin } from "../core/plugin";
+import { activate, refreshRovingTabstops, rovingFocus } from "../core/a11y";
 import { splitWords, unionBox, type Word } from "../core/textLayer";
 import type { Box } from "../core/types";
 import type { Viewer } from "../core/viewer";
@@ -155,6 +156,8 @@ function mount(host: HTMLElement, v: Viewer, index: TextIndex): () => void {
   const summary = document.createElement("div");
   summary.className = "mpdf-list-summary";
   const results = document.createElement("div");
+  results.setAttribute("role", "listbox");
+  results.setAttribute("aria-label", "Search results");
   results.className = "mpdf-list mpdf-search-results";
   host.append(input, scopeRow, summary, results);
 
@@ -235,16 +238,17 @@ function mount(host: HTMLElement, v: Viewer, index: TextIndex): () => void {
       main.append(title, meta);
 
       row.append(badge, main);
-      row.onclick = () => {
+      activate(row, () => {
         if (hit.annotId) {
           const a = v.store.get(hit.annotId);
           if (a) { v.store.select(a.id); void v.goToAnnotation(a, { zoom: false }); return; }
         }
         void v.goToPage(hit.page);
         if (hit.box) flash(v, hit.page, hit.box);
-      };
+      }, { role: "option", label: `${hit.source} hit on page ${hit.page}: ${hit.snippet}`, roving: true });
       results.appendChild(row);
     }
+    refreshRovingTabstops(results, '[role="option"]');
   };
 
   input.oninput = () => {
@@ -254,7 +258,8 @@ function mount(host: HTMLElement, v: Viewer, index: TextIndex): () => void {
   input.onkeydown = (e) => { if (e.key === "Enter") { clearTimeout(timer); void run(); } };
 
   const offs = [v.on("doc:loaded", () => { results.innerHTML = ""; summary.textContent = ""; })];
-  return () => { offs.forEach((off) => off()); clearTimeout(timer); };
+  const stopRoving = rovingFocus(results, '[role="option"]');
+  return () => { offs.forEach((off) => off()); stopRoving(); clearTimeout(timer); };
 }
 
 /** Split a snippet around the match so the hit is visible without innerHTML. */

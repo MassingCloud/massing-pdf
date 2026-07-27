@@ -12,6 +12,7 @@
  * review queue with an audit trail rather than being silently applied.
  */
 import { definePlugin } from "../core/plugin";
+import { activate } from "../core/a11y";
 import { comparePages, type CompareResult } from "./compare";
 import { PdfDocument, type PdfSource } from "../core/document";
 import { bbox, boxesOverlap } from "../core/geometry";
@@ -301,10 +302,10 @@ function mountQueue(
       tools.appendChild(drop);
 
       row.append(swatch, main, tools);
-      row.onclick = () => {
+      activate(row, () => {
         v.store.select(p.annot.id);
         void v.goToAnnotation(p.annot, { zoom: false });
-      };
+      }, { label: "Open this change", roving: true });
       list.appendChild(row);
     }
   };

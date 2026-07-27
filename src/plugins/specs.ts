@@ -10,6 +10,7 @@
  * requirements buried in Part 1 can be pulled out into a checklist.
  */
 import { definePlugin } from "../core/plugin";
+import { activate, refreshRovingTabstops, rovingFocus } from "../core/a11y";
 import { splitWords, unionBox, type Word } from "../core/textLayer";
 import type { Box } from "../core/types";
 import type { Viewer } from "../core/viewer";
@@ -430,11 +431,13 @@ function mountSpecs(
   }
 
   const body = document.createElement("div");
+  body.setAttribute("aria-label", "Specification sections");
   body.className = "mpdf-list mpdf-spec-list";
   host.append(search, tabs, body);
 
   const empty = (msg: string, withButton = false) => {
     body.innerHTML = "";
+    queueMicrotask(() => refreshRovingTabstops(body, '[role="button"]'));
     const p = document.createElement("p");
     p.className = "mpdf-empty";
     p.textContent = msg;
@@ -457,6 +460,7 @@ function mountSpecs(
     }
     const q = search.value.trim().toLowerCase();
     body.innerHTML = "";
+    queueMicrotask(() => refreshRovingTabstops(body, '[role="button"]'));
 
     if (mode === "requirements") {
       const reqs = extractRequirements(sections)
@@ -479,7 +483,7 @@ function mountSpecs(
         meta.textContent = `${r.section} §${r.clause} · p.${r.page}`;
         main.append(title, meta);
         row.append(badge, main);
-        row.onclick = () => void v.goToPage(r.page);
+        activate(row, () => void v.goToPage(r.page), { label: `Go to page ${r.page}`, roving: true });
         body.appendChild(row);
       }
       return;
@@ -532,7 +536,7 @@ function mountSpecs(
         const txt = document.createElement("span");
         txt.textContent = clause.text;
         row.append(ref, txt);
-        row.onclick = () => void v.goToPage(clause.page);
+        activate(row, () => void v.goToPage(clause.page), { label: `Go to page ${clause.page}`, roving: true });
 
         // Cite: attach this clause to whatever markup is selected.
         const cite = document.createElement("button");
@@ -563,7 +567,8 @@ function mountSpecs(
   search.oninput = render;
   const offs = [v.on("doc:loaded", render), v.on("annot:selected", () => { /* cite button state is read live */ })];
   render();
-  return () => offs.forEach((off) => off());
+  const stopRoving = rovingFocus(body, '[role="button"]');
+  return () => { offs.forEach((off) => off()); stopRoving(); };
 }
 
 declare module "../core/viewer" {

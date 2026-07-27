@@ -680,3 +680,70 @@
 @media (prefers-reduced-motion: reduce) {
   .mpdf-notice { transition: none; }
 }
+
+/* ---- accessibility ------------------------------------------------------ */
+
+/*
+ * Available to a screen reader, invisible on screen.
+ *
+ * `display: none` and `visibility: hidden` both remove an element from the accessibility tree, so
+ * neither works for a live region. This is the clip-rect technique, which keeps it rendered.
+ */
+.mpdf-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * A visible focus ring on everything reachable by keyboard.
+ *
+ * `:focus-visible` rather than `:focus`, so a mouse click does not leave a ring behind — that is
+ * what usually leads someone to remove focus styling altogether, which is what makes an interface
+ * unusable without a mouse.
+ */
+.mpdf-root :focus-visible {
+  outline: 2px solid var(--mpdf-focus, #2563eb);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The rows are custom widgets, so they need the selected state stated, not only coloured. */
+.mpdf-root [role="option"][aria-selected="true"] { background: var(--mpdf-selected-bg, #e0ecff); }
+.mpdf-root [role="option"] { cursor: pointer; }
+
+/*
+ * Respect a reduced-motion preference.
+ *
+ * Vestibular disorders make smooth scrolling and transitions genuinely unpleasant, and a viewer
+ * that pans and zooms is a worst case for it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .mpdf-root *,
+  .mpdf-root *::before,
+  .mpdf-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Windows High Contrast Mode replaces authored colours with system ones, so anything that conveys
+ * meaning through background colour alone disappears. Restore a border for those states.
+ */
+@media (forced-colors: active) {
+  .mpdf-root [role="option"][aria-selected="true"],
+  .mpdf-root .mpdf-tb-btn[aria-pressed="true"] {
+    border: 2px solid Highlight;
+    forced-color-adjust: none;
+  }
+  .mpdf-root :focus-visible { outline: 2px solid Highlight; }
+}

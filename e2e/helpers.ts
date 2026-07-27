@@ -78,9 +78,13 @@ export async function inkPixels(page: Page, pageNum = 1): Promise<number> {
     const tiles = (wrap ? Array.from(wrap.querySelectorAll("canvas.mpdf-tile")) : []) as HTMLCanvasElement[];
     const WINDOW = 256;
     let ink = 0;
-    // Every tile, but only a window out of each: sampling the first few in DOM order is arbitrary,
-    // and at high zoom those happen to be the blank margin at the top of the sheet.
+    // Every tile, but only a window out of each, and stop as soon as the question is answered.
+    // Sampling the first few in DOM order is arbitrary — at high zoom those are the blank margin at
+    // the top of the sheet — but reading all sixteen megapixel tiles on every poll is slow enough
+    // to time out a wait that the renderer was about to satisfy.
+    const ENOUGH = 200;
     for (const canvas of tiles) {
+      if (ink >= ENOUGH) break;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       if (!ctx || !canvas.width || !canvas.height) continue;
       const w = Math.min(WINDOW, canvas.width);

@@ -82,6 +82,8 @@ function renderBar(bar: HTMLElement, v: Viewer, options: ToolbarOptions): void {
     const wrap = document.createElement("div");
     wrap.className = "mpdf-tb-group";
     wrap.dataset.group = g;
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", g);
     for (const item of buckets.get(g)!) {
       const isTool = "input" in item;
       const b = document.createElement("button");
@@ -89,9 +91,15 @@ function renderBar(bar: HTMLElement, v: Viewer, options: ToolbarOptions): void {
       b.className = "mpdf-tb-btn";
       b.textContent = item.icon ?? item.label;
       b.title = item.shortcut ? `${item.label} (${item.shortcut})` : item.label;
+      // The visible label is usually a single glyph, which reads as the emoji's own name or as
+      // nothing at all. `title` is not a reliable accessible name; `aria-label` is.
+      b.setAttribute("aria-label", item.shortcut ? `${item.label} (shortcut ${item.shortcut})` : item.label);
       b.dataset.id = item.id;
       if (isTool) {
-        if (v.activeTool?.id === item.id) b.classList.add("is-active");
+        const armed = v.activeTool?.id === item.id;
+        if (armed) b.classList.add("is-active");
+        // A tool is a toggle, and "is-active" is a colour change — invisible to a reader.
+        b.setAttribute("aria-pressed", String(armed));
         b.onclick = () => v.setTool(v.activeTool?.id === item.id ? null : item.id);
       } else {
         const action = item as ActionDef;

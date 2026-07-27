@@ -20,6 +20,8 @@ jobs:
         node: [20, 22]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -44,6 +46,11 @@ jobs:
       - name: Verify entry points resolve
         run: npm run check:package
 
+      # "Permissive licences only" is a constraint, not a preference: this library is embedded in
+      # other people's products, so a copyleft transitive dependency would propagate to all of them.
+      - name: Verify dependency licences
+        run: npm run check:licences
+
       - name: Build demo
         run: npm run demo:build
 
@@ -60,6 +67,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -73,6 +82,10 @@ jobs:
       # exactly the things that differ between them, and they are what this suite exercises.
       - name: Install browsers
         run: npx playwright install --with-deps chromium firefox webkit
+
+      # The CSP project runs against the built demo, not the dev server.
+      - name: Build demo for the CSP suite
+        run: npm run demo:build
 
       # Covers what unit tests structurally cannot: rasterisation, the pointer gesture loop, the
       # compare pipeline and the IndexedDB adapters all need a browser that actually composites.

@@ -106,6 +106,16 @@ export {
   azureOcrProvider, googleVisionOcrProvider, fallbackOcrProvider, toBase64Png, toPngBlob,
   type AzureOcrOptions, type GoogleOcrOptions, type FallbackOptions,
 } from "./plugins/ocr-providers";
+export {
+  Policy, PermissionError, capabilityCheck,
+  type Capability, type PermissionCheck, type PermissionDecision, type PermissionRequest,
+  type AuditEvent, type AuditSink,
+} from "./core/policy";
+export { safeMediaUrl, safeNavigableUrl } from "./core/url";
+export {
+  activate, rovingFocus, refreshRovingTabstops, createLiveRegion, trapFocus,
+  type ActivateOptions,
+} from "./core/a11y";
 export { sheetsPlugin, extractSheetMeta, type SheetsOptions } from "./plugins/sheets";
 export { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 export { persistencePlugin, type PersistenceOptions } from "./plugins/persistence";

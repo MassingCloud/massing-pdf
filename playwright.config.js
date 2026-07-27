@@ -40,7 +40,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts"],
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         // Big enough that a D sheet at fit-width still has room for both side panels.
@@ -66,20 +66,40 @@ export default defineConfig({
       // per-canvas size limits, and text-layer selection behaviour. Worth running for real rather
       // than assuming they match.
       name: "firefox",
-      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts"],
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts"],
       use: { ...devices["Desktop Firefox"], viewport: { width: 1600, height: 1000 } },
     },
     {
       name: "webkit",
-      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts"],
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts"],
       use: { ...devices["Desktop Safari"], viewport: { width: 1600, height: 1000 } },
+    },
+    {
+      // Content-Security-Policy has to be checked against the *built* demo. The dev server injects
+      // its own inline HMR script, so every run would report violations that do not exist in
+      // anything anyone ships.
+      name: "csp",
+      testMatch: "**/csp.spec.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: "http://localhost:4173",
+        viewport: { width: 1600, height: 1000 },
+      },
     },
   ],
 
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:5173/demo/index.html",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: "npm run dev",
+      url: "http://localhost:5173/demo/index.html",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: "npm run demo:build && npx vite preview --mode demo --port 4173 --strictPort",
+      url: "http://localhost:4173/index.html",
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+  ],
 });

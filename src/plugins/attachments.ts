@@ -10,6 +10,8 @@
  * and it says so rather than silently dropping the big ones.
  */
 import { definePlugin } from "../core/plugin";
+import { activate } from "../core/a11y";
+import { safeMediaUrl, safeNavigableUrl } from "../core/url";
 import { makeId } from "../core/store";
 import type { AnnotAttachment } from "../core/types";
 import type { Viewer } from "../core/viewer";
@@ -148,7 +150,15 @@ function mountPanel(
   host.appendChild(body);
 
   const open = options.open ?? ((att: AnnotAttachment) => {
-    if (att.url) window.open(att.url, "_blank", "noopener,noreferrer");
+    // Vetted, not trusted: this URL came off a markup record, and records arrive from other people.
+    const href = safeNavigableUrl(att.url);
+    if (href) window.open(href, "_blank", "noopener,noreferrer");
+    else if (att.url) {
+      v.bus.emit("notice", {
+        level: "warn",
+        message: `Refused to open "${att.name}": its link does not use a safe scheme.`,
+      });
+    }
   });
 
   const render = () => {
@@ -166,10 +176,10 @@ function mountPanel(
     const drop = document.createElement("div");
     drop.className = "mpdf-dropzone";
     drop.textContent = "Drop files here, or click to browse";
-    drop.onclick = async () => {
+    activate(drop, async () => {
       const files = await pickFiles(options.accept ?? "image/*,video/*,audio/*");
       if (files?.length) await attach(v, a.id, files);
-    };
+    });
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("is-over"); };
     drop.ondragleave = () => drop.classList.remove("is-over");
     drop.ondrop = (e) => {
@@ -185,19 +195,20 @@ function mountPanel(
       const item = document.createElement("div");
       item.className = "mpdf-attach";
 
-      if (att.kind === "photo" && att.url) {
+      const mediaSrc = safeMediaUrl(att.url);
+      if (att.kind === "photo" && mediaSrc) {
         const img = document.createElement("img");
         img.className = "mpdf-attach-thumb";
-        img.src = att.url;
+        img.src = mediaSrc;
         img.alt = att.name;
         item.appendChild(img);
-      } else if (att.kind === "audio" && att.url) {
+      } else if (att.kind === "audio" && mediaSrc) {
         // A voice note is worth playing in place — opening it in a tab to hear ten seconds of
         // someone describing a wall is not a workflow.
         const audio = document.createElement("audio");
         audio.controls = true;
         audio.preload = "none";
-        audio.src = att.url;
+        audio.src = mediaSrc;
         audio.className = "mpdf-attach-audio";
         audio.onclick = (e) => e.stopPropagation();
         item.appendChild(audio);
@@ -227,7 +238,7 @@ function mountPanel(
       del.onclick = (e) => { e.stopPropagation(); v.attachments?.remove(a.id, att.id); };
 
       item.append(main, del);
-      item.onclick = () => open(att);
+      activate(item, () => open(att), { label: `Open attachment ${att.name}` });
       list.appendChild(item);
     }
     if (!(a.attachments ?? []).length) {

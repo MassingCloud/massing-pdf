@@ -10,6 +10,7 @@
  * a plan against its detail, a drawing against its spec section, this revision against the last.
  */
 import { definePlugin } from "../core/plugin";
+import { activate, refreshRovingTabstops, rovingFocus } from "../core/a11y";
 import { Viewer } from "../core/viewer";
 import type { SavedView } from "../core/types";
 
@@ -101,12 +102,15 @@ export async function applyView(v: Viewer, view: SavedView): Promise<void> {
 
 function mountViews(host: HTMLElement, v: Viewer): () => void {
   const list = document.createElement("div");
+  list.setAttribute("role", "list");
+  list.setAttribute("aria-label", "Saved views");
   list.className = "mpdf-list";
   host.appendChild(list);
 
   const render = () => {
     const views = v.store.savedViews();
     list.innerHTML = "";
+    queueMicrotask(() => refreshRovingTabstops(list, '[role="button"]'));
     if (!views.length) {
       const p = document.createElement("p");
       p.className = "mpdf-empty";
@@ -141,14 +145,15 @@ function mountViews(host: HTMLElement, v: Viewer): () => void {
       del.onclick = (e) => { e.stopPropagation(); v.store.removeView(view.id); render(); };
 
       row.append(main, del);
-      row.onclick = () => void applyView(v, view);
+      activate(row, () => void applyView(v, view), { label: `Apply saved view ${view.name}`, roving: true });
       list.appendChild(row);
     }
   };
 
   const offs = [v.on("view:saved", render), v.on("doc:loaded", render)];
   render();
-  return () => offs.forEach((off) => off());
+  const stopRoving = rovingFocus(list, '[role="button"]');
+  return () => { offs.forEach((off) => off()); stopRoving(); };
 }
 
 // ---- split view ------------------------------------------------------------

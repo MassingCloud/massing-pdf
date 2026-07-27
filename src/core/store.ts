@@ -7,6 +7,7 @@
  * the store rather than something each tool has to remember to implement.
  */
 import type { EventBus } from "./events";
+import type { Policy } from "./policy";
 import { bbox } from "./geometry";
 import { matchesFilter } from "./filter";
 import type {
@@ -22,6 +23,13 @@ type Patch =
 
 export interface StoreOpts {
   bus: EventBus;
+  /**
+   * Permission and audit gate.
+   *
+   * Sits here rather than in the UI because this is the one seam every mutation crosses — tool,
+   * keyboard, import, adapter, host script. A check in the toolbar guards the toolbar.
+   */
+  policy?: Policy;
   /** Who is authoring. Read at mutation time so a host can change it mid-session. */
   author: () => string;
   org?: () => string | undefined;
@@ -115,6 +123,9 @@ export class AnnotationStore {
   }
 
   setCalibration(cal: Calibration | null, page = 0): void {
+    // Re-deriving every measurement on a sheet from a wrong scale is one of the more expensive
+    // mistakes available here, which is why it is a permission of its own.
+    if (this.o.policy && !this.o.policy.allows("calibrate")) return;
     if (cal) this.calibrations.set(page, { ...cal, page });
     else this.calibrations.delete(page);
     this.bus.emit("calibration:changed", { calibration: cal, page });
@@ -127,6 +138,7 @@ export class AnnotationStore {
   sheet(page: number): SheetMeta | undefined { return this.sheets.get(page); }
 
   setSheet(meta: SheetMeta): void {
+    if (this.o.policy && !this.o.policy.allows("sheet:edit")) return;
     this.sheets.set(meta.page, meta);
     this.bus.emit("sheet:changed", { meta });
   }
@@ -149,8 +161,9 @@ export class AnnotationStore {
   // ---- mutations -----------------------------------------------------------
 
   /** Create a markup from a tool's draft. */
-  add(draft: AnnotationDraft): Annotation {
+  add(draft: AnnotationDraft): Annotation | undefined {
     const annot = this.materialise(draft);
+    if (this.o.policy && !this.o.policy.allows("markup:create", annot)) return undefined;
     this.items.set(annot.id, annot);
     this.push({ t: "add", annots: [annot] });
     this.bus.emit("annot:added", { annot });
@@ -159,7 +172,9 @@ export class AnnotationStore {
 
   /** Create several as one undo step (paste, import, migration). */
   addMany(drafts: AnnotationDraft[]): Annotation[] {
-    const made = drafts.map((d) => this.materialise(d));
+    const policy = this.o.policy;
+    const made = drafts.map((d) => this.materialise(d))
+      .filter((a) => !policy || policy.allows("import", a));
     for (const a of made) this.items.set(a.id, a);
     this.push({ t: "add", annots: made });
     for (const annot of made) this.bus.emit("annot:added", { annot });
@@ -173,6 +188,14 @@ export class AnnotationStore {
   update(id: string, patch: Partial<Annotation>, opts: { bump?: boolean; undoable?: boolean } = {}): Annotation | undefined {
     const before = this.items.get(id);
     if (!before) return undefined;
+    if (this.o.policy) {
+      // A status change is its own permission: a reviewer may be allowed to close an issue without
+      // being allowed to reword it, and vice versa.
+      const capability = patch.status !== undefined && patch.status !== before.status
+        ? "markup:status" as const
+        : "markup:edit" as const;
+      if (!this.o.policy.allows(capability, before)) return undefined;
+    }
     if (before.locked && !("locked" in patch)) return before;
     const after = this.derive({ ...before, ...patch, id: before.id });
     if (opts.bump !== false) {
@@ -206,7 +229,8 @@ export class AnnotationStore {
   remove(ids: string[] | string): Annotation[] {
     const list = (Array.isArray(ids) ? ids : [ids])
       .map((id) => this.items.get(id))
-      .filter((a): a is Annotation => !!a && !a.locked);
+      .filter((a): a is Annotation => !!a && !a.locked)
+      .filter((a) => !this.o.policy || this.o.policy.allows("markup:delete", a));
     if (!list.length) return [];
     for (const a of list) { this.items.delete(a.id); this.selection.delete(a.id); }
     this.push({ t: "remove", annots: list });

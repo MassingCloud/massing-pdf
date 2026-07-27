@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { inkPixels, openSample, scrollTo, waitForRender } from "./helpers";
+import { INKED_POINT, inkPixels, openSample, scrollTo, waitForRender } from "./helpers";
 
 /**
  * Rasterisation, tiling and view state.
@@ -47,7 +47,7 @@ test.describe("rasterisation", () => {
 
     // An ARCH D sheet at 400% is far past the ~4k-per-side budget, so it must split into tiles.
     await page.evaluate(() => window.viewer.setZoom(4));
-    await scrollTo(page, { x: 800, y: 600 });
+    await scrollTo(page, INKED_POINT);
     await expect
       .poll(async () => page.locator('.mpdf-page-wrap[data-page="1"] canvas.mpdf-tile').count(), { timeout: 45_000 })
       .toBeGreaterThan(before);
@@ -57,7 +57,7 @@ test.describe("rasterisation", () => {
   test("keeps every tile within the per-canvas size budget", async ({ page }) => {
     await openSample(page);
     await page.evaluate(() => window.viewer.setZoom(6));
-    await scrollTo(page, { x: 600, y: 400 });
+    await scrollTo(page, INKED_POINT);
     await waitForRender(page, 1);
 
     const oversized = await page.evaluate(() =>
@@ -72,7 +72,7 @@ test.describe("rasterisation", () => {
     await openSample(page);
     await waitForRender(page, 1);
     await page.evaluate(() => window.viewer.setZoom(5));
-    await scrollTo(page, { x: 700, y: 500 });
+    await scrollTo(page, INKED_POINT);
     await waitForRender(page, 1);
     expect(await inkPixels(page, 1)).toBeGreaterThan(50);
   });

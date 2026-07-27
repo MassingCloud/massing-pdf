@@ -6,7 +6,7 @@
  * server change before this is usable, the default paths and payload mapping target that API — and
  * every path is overridable so another backend only has to supply its own URLs.
  */
-import type { LoadResult, Mutation, StorageAdapter, StoreKey } from "./types";
+import { ConflictError, type LoadResult, type Mutation, type StorageAdapter, type StoreKey } from "./types";
 import type { Annotation, Calibration, SheetMeta } from "../core/types";
 
 export interface RestPaths {
@@ -88,12 +88,21 @@ export class RestAdapter implements StorageAdapter {
     // Deletes first: a bulk save with `replace` would otherwise resurrect a markup deleted in the
     // same batch, since the batch body is the new truth for the sheet.
     for (const m of removals) {
-      const res = await this.fetch(this.paths.remove(key, m.id), { method: "DELETE", headers: this.headers() });
+      const url = m.baseVersion === undefined
+        ? this.paths.remove(key, m.id)
+        : `${this.paths.remove(key, m.id)}${this.paths.remove(key, m.id).includes("?") ? "&" : "?"}base_version=${m.baseVersion}`;
+      const res = await this.fetch(url, { method: "DELETE", headers: this.headers() });
+      if (res.status === 409) throw await this.conflictFrom(res, [{ id: m.id }]);
       if (!res.ok && res.status !== 404) throw new Error(`delete failed: HTTP ${res.status}`);
     }
 
     const markups = [
-      ...upserts.map((m) => toWire(m.annot)),
+      ...upserts.map((m) => ({
+        ...toWire(m.annot),
+        // The version this edit was made against. A server that enforces it answers 409 with the
+        // rows that moved on; one that ignores it behaves exactly as before.
+        ...(m.baseVersion === undefined ? {} : { base_version: m.baseVersion }),
+      })),
       ...cals.filter((m) => m.calibration).map((m) => ({
         x: 0, y: 0, kind: "__calibration", note: null, data: m.calibration as unknown as Record<string, unknown>,
       })),
@@ -112,7 +121,39 @@ export class RestAdapter implements StorageAdapter {
         markups,
       }),
     });
+    if (res.status === 409) {
+      throw await this.conflictFrom(res, upserts.map((m) => ({ id: m.annot.id, mine: m.annot })));
+    }
     if (!res.ok) throw new Error(`save failed: HTTP ${res.status}`);
+  }
+
+  /**
+   * Build a `ConflictError` from a 409.
+   *
+   * The body is expected to carry the rows the server actually holds, as
+   * `{ conflicts: [ <row> ] }` or a bare array — so the caller can show both sides rather than only
+   * being told it failed. A server that answers 409 with nothing useful still produces a usable
+   * error, just without `theirs`.
+   */
+  private async conflictFrom(
+    res: Response,
+    attempted: { id: string; mine?: Annotation }[],
+  ): Promise<ConflictError> {
+    let rows: WireMarkup[] = [];
+    try {
+      const body = await res.json() as { conflicts?: WireMarkup[] } | WireMarkup[];
+      rows = Array.isArray(body) ? body : body.conflicts ?? [];
+    } catch { /* no body, or not JSON — the ids alone still make a usable error */ }
+
+    const theirs = new Map(rows.map((r) => [r.id, fromWire(r)]));
+    // If the server named the rows, trust that list; otherwise assume the whole batch was rejected.
+    const ids = theirs.size ? [...theirs.keys()] : attempted.map((a) => a.id);
+    const mine = new Map(attempted.map((a) => [a.id, a.mine]));
+    return new ConflictError(ids.map((id) => ({
+      id,
+      ...(mine.get(id) ? { mine: mine.get(id)! } : {}),
+      ...(theirs.get(id) ? { theirs: theirs.get(id)! } : {}),
+    })));
   }
 
   /**

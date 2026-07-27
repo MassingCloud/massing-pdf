@@ -40,7 +40,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: "**/touch.spec.ts",
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         // Big enough that a D sheet at fit-width still has room for both side panels.
@@ -50,15 +50,29 @@ export default defineConfig({
     {
       // Touch needs its own profile: the page must actually report touch support, or pointer
       // events arrive as mouse and `touch-action` stops mattering. Kept separate so the desktop
-      // suite stays honestly desktop.
+      // suite stays honestly desktop. Chromium-only because the raw touch and pen events come from
+      // CDP, which Firefox and WebKit do not expose.
       name: "chromium-touch",
-      testMatch: "**/touch.spec.ts",
+      testMatch: ["**/touch.spec.ts", "**/pen.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1600, height: 1000 },
         hasTouch: true,
         isMobile: false,
       },
+    },
+    {
+      // Firefox and WebKit differ from Chromium on the two things this engine leans hardest on:
+      // per-canvas size limits, and text-layer selection behaviour. Worth running for real rather
+      // than assuming they match.
+      name: "firefox",
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts"],
+      use: { ...devices["Desktop Firefox"], viewport: { width: 1600, height: 1000 } },
+    },
+    {
+      name: "webkit",
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts"],
+      use: { ...devices["Desktop Safari"], viewport: { width: 1600, height: 1000 } },
     },
   ],
 

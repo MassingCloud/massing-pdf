@@ -40,6 +40,10 @@ jobs:
       - name: Build library
         run: npm run build
 
+      # Cheap, and catches the one packaging mistake that only surfaces after publishing.
+      - name: Verify entry points resolve
+        run: npm run check:package
+
       - name: Build demo
         run: npm run demo:build
 
@@ -65,8 +69,10 @@ jobs:
 
       - run: npm ci
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      # All three engines: canvas size limits, pointer/touch dispatch and IndexedDB semantics are
+      # exactly the things that differ between them, and they are what this suite exercises.
+      - name: Install browsers
+        run: npx playwright install --with-deps chromium firefox webkit
 
       # Covers what unit tests structurally cannot: rasterisation, the pointer gesture loop, the
       # compare pipeline and the IndexedDB adapters all need a browser that actually composites.

@@ -27,8 +27,11 @@ test.describe("drag tools", () => {
 
     const [a] = await annotations(page);
     expect(a?.kind).toBe("rect");
-    expect(a!.points[0]!.x).toBeCloseTo(300, 0);
-    expect(a!.points[1]!.y).toBeCloseTo(420, 0);
+    // Within a couple of points: engines round synthetic pointer coordinates differently, and at
+    // fit-width a point is well under a device pixel. Asserting tighter tests the browser's
+    // rounding, not the viewer.
+    expect(a!.points[0]!.x).toBeCloseTo(300, -1);
+    expect(a!.points[1]!.y).toBeCloseTo(420, -1);
   });
 
   test("discards a click that never moved, rather than storing a zero-size markup", async ({ page }) => {

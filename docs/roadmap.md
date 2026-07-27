@@ -13,7 +13,7 @@ between what the spec asks for and what exists, rather than to imply the spec is
 | §6 Revision survival | Overlay compare, alignment (translation and uniform scale), diff clustering, auto-clouding, slip-sheet migration with a review queue and audit trail. |
 | §7 Specifications workspace | CSI section/clause parsing, clause tree, citation, requirement extraction, and drawing→spec callout detection with nearest-callout auto-citation. |
 | §8 Issues and tasks | Pins, status, assignee, due date, promote-to-issue, BCF topics and `.bcfzip`. **No** forms or daily reports. |
-| §9 Offline-first | IndexedDB working copy, durable outbound queue, version-based merge. **No** conflict-resolution UI. |
+| §9 Offline-first | IndexedDB working copy, durable outbound queue, optimistic concurrency — every write carries the version it was based on, and a 409 surfaces both sides. **No** conflict-resolution UI. |
 | §10 Search | Document-wide search over sheet text, markups and the sheet register, faceted and spatially located. OCR-backed on scans when a provider is configured. |
 | §11 Historical mode | Provenance, confidence tags that visibly change how a markup reads, transcription, contrast/invert, tracing overlay. |
 | Data model / interchange | JSON, XFDF, BCF topics, `.bcfzip`, CSV, flattened PDF. **No** ICDD packaging. |
@@ -98,13 +98,13 @@ the viewer is already instantiable more than once on a page.
 
 Two suites, split by what each can actually reach.
 
-**206 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
+**217 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
 formatting, store mutation/undo/merge semantics, every interchange round trip, spec parsing and
 reference matching, text splitting, search matching, migration planning, OCR coordinate mapping,
-OCR tile planning and overlap de-duplication, and the ZIP writer — the last verified by reading
+OCR tile planning and overlap de-duplication, optimistic-concurrency wiring, and the ZIP writer — the last verified by reading
 its own central directory back rather than by trusting the bytes.
 
-**58 browser tests** (`npm run test:e2e`, Playwright + Chromium) cover what unit tests structurally
+**112 browser tests** (`npm run test:e2e`) cover what unit tests structurally
 cannot. `happy-dom` has no layout, and pdf.js schedules its render continuation on
 `requestAnimationFrame`, which never fires without a compositor — so in a headless DOM every render
 simply hangs. These assert on real pixels and real pointer events:
@@ -116,6 +116,11 @@ simply hangs. These assert on real pixels and real pointer events:
 | `compare.spec.ts` | rasterise → align → difference → cluster → cloud, and migration planning over a real diff |
 | `persistence.spec.ts` | IndexedDB round-trip and isolation, survival across a reload, and the offline queue holding a markup through a network failure and draining on retry |
 | `touch.spec.ts` | pinch-zoom and its clamps, anchor stability, two-finger pan not drawing, one-finger drawing, and a gesture the browser cancels mid-way |
+| `pen.spec.ts` | stylus drawing, pressure samples reaching the record, a palm rejected mid-stroke, touch recovering after the pen is put down, and a pen landing mid-pinch |
+
+Each runs on Chromium, WebKit and Firefox — canvas size limits, pointer and touch dispatch and
+IndexedDB semantics are exactly where engines disagree. Touch and pen run under a separate Chromium
+project with `hasTouch` enabled, since CDP touch state is per-session.
 
 The fixture is the demo's generated sample, which makes assertions checkable against the drawing
 rather than against the implementation: the plan is drawn at `1/8" = 1'-0"` with a `144'-0"` overall
@@ -130,7 +135,8 @@ Node 20.6+, and 22 avoids the edge entirely.
 - **OCR rasterisation end to end.** The coordinate mapping and the kernel fallback are tested; the
   rasterise-and-recognise round trip needs a provider, and bundling one purely for tests would
   contradict the reason it is an interface.
-- **Pen and stylus.** Touch is covered; `pointerType: "pen"` currently behaves as a mouse, which is
-  right for drawing but ignores pressure and tilt, and offers no palm rejection.
-- **Cross-browser.** Chromium only. Firefox and WebKit differ in canvas limits and in text-layer
-  selection behaviour, both of which this engine leans on.
+- **Tilt and barrel-rotation.** Pressure is captured and palm rejection works; tilt is read from the
+  pointer event but nothing consumes it yet, and no renderer varies stroke width along a stroke.
+- **Conflict-resolution UI.** The client detects a 409, carries both sides of every conflicted
+  markup and resolves by policy (`theirs` by default). Presenting the two versions and letting a
+  reviewer choose is a host concern this library only supplies the data for.

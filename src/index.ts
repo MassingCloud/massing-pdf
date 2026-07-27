@@ -102,6 +102,10 @@ export {
   type OcrOptions, type OcrProvider, type OcrInput, type OcrResult, type OcrWord,
   type TilePlanOptions,
 } from "./plugins/ocr";
+export {
+  azureOcrProvider, googleVisionOcrProvider, fallbackOcrProvider, toBase64Png, toPngBlob,
+  type AzureOcrOptions, type GoogleOcrOptions, type FallbackOptions,
+} from "./plugins/ocr-providers";
 export { sheetsPlugin, extractSheetMeta, type SheetsOptions } from "./plugins/sheets";
 export { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 export { persistencePlugin, type PersistenceOptions } from "./plugins/persistence";

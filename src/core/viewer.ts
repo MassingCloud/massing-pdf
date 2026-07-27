@@ -40,6 +40,16 @@ export interface ViewerOptions {
   sheetIdFor?: (page: number) => string;
   /** Build a selectable text layer over each page. On by default; scans have no text to select. */
   textLayer?: boolean;
+  /**
+   * Ignore touch contacts while a pen is in use. On by default — without it, a hand resting on a
+   * tablet draws across whatever the stylus is writing.
+   */
+  palmRejection?: boolean;
+  /**
+   * Vary freehand stroke width with stylus pressure. On by default where the device reports it;
+   * pressure samples are kept on the markup either way.
+   */
+  penPressure?: boolean;
   /** Plugins to install at construction. More can be added with `use()` before `load()`. */
   plugins?: ViewerPlugin[];
 }
@@ -60,6 +70,13 @@ interface PageLayer {
 const ZOOM_MIN = 0.08;
 const ZOOM_MAX = 16;
 const PAGE_GAP = 16;
+/**
+ * How long after a pen event touch stays ignored.
+ *
+ * Long enough to cover the gap between strokes while a hand stays down, short enough that putting
+ * the stylus aside and using fingers works without a wait anyone would notice.
+ */
+const PEN_PALM_WINDOW_MS = 700;
 
 export class Viewer {
   readonly bus = new EventBus();
@@ -100,6 +117,14 @@ export class Viewer {
   private scrollRaf = 0;
   /** Live touch points, for pinch and two-finger pan. Keyed by pointerId. */
   private touches = new Map<number, { x: number; y: number }>();
+  /**
+   * When a pen was last seen. Within `PEN_PALM_WINDOW_MS` of that, touch contacts are ignored:
+   * a hand resting on the sheet is a palm, not a second finger, and on a tablet with a stylus it
+   * would otherwise draw across everything the pen is writing.
+   */
+  private lastPenAt = 0;
+  /** Pressure samples for the current freehand stroke, when the device reports them. */
+  private strokePressures: number[] = [];
   private pinch: {
     distance: number;
     zoom: number;
@@ -674,6 +699,11 @@ export class Viewer {
     this.el.pages.style.touchAction = this.activeTool ? "none" : "pan-x pan-y";
   }
 
+  /** True while a pen is in use, so a touch contact is more likely a palm than a finger. */
+  private palmRejected(): boolean {
+    return this.opts.palmRejection !== false && Date.now() - this.lastPenAt < PEN_PALM_WINDOW_MS;
+  }
+
   private touchMidpoint(): { x: number; y: number } {
     const pts = [...this.touches.values()];
     const n = pts.length || 1;
@@ -773,12 +803,20 @@ export class Viewer {
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return;
 
-    if (e.pointerType === "touch") {
+    if (e.pointerType === "pen") {
+      this.lastPenAt = Date.now();
+      // A pen landing mid-pinch means the hand is resting; drop the touch state rather than let a
+      // stale finger keep zooming.
+      if (this.touches.size) { this.touches.clear(); this.pinch = null; }
+    } else if (e.pointerType === "touch") {
+      if (this.palmRejected()) return;
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       // Two fingers is always a pinch, whatever tool is armed — it is how you reposition mid-markup
       // without putting the tool down.
       if (this.touches.size >= 2) { this.beginPinch(); return; }
     }
+    this.strokePressures = [];
+    if (e.pointerType === "pen" && e.pressure > 0) this.strokePressures.push(e.pressure);
 
     this.el.root.focus({ preventScroll: true });
     const at = this.locate(e);
@@ -820,9 +858,14 @@ export class Viewer {
   }
 
   private onPointerMove(e: PointerEvent): void {
-    if (e.pointerType === "touch" && this.touches.has(e.pointerId)) {
+    if (e.pointerType === "pen") this.lastPenAt = Date.now();
+    if (e.pointerType === "touch") {
+      if (!this.touches.has(e.pointerId)) return;      // a rejected palm, still sliding around
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pinch) { this.updatePinch(); return; }
+    }
+    if (e.pointerType === "pen" && e.pressure > 0 && this.gesture?.mode === "draw") {
+      this.strokePressures.push(e.pressure);
     }
 
     const g = this.gesture;
@@ -868,7 +911,10 @@ export class Viewer {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    if (e.pointerType === "pen") this.lastPenAt = Date.now();
     if (e.pointerType === "touch") {
+      // A palm was never tracked, so its release must not end a stroke the pen is still drawing.
+      if (!this.touches.has(e.pointerId) && this.palmRejected()) return;
       this.touches.delete(e.pointerId);
       const wasPinching = Boolean(this.pinch);
       this.endPinch();
@@ -1045,6 +1091,7 @@ export class Viewer {
       const q = measure(draft.kind, draft.points, this.store.calibration(page));
       if (q) draft.quantity = q;
     }
+    this.applyPenPressure(draft);
     const annot = this.store.add({ ...draft, page: draft.page ?? page });
     if (!tool.sticky) this.setTool(null);
     this.redraw(page);
@@ -1086,6 +1133,30 @@ export class Viewer {
     if (!tool.sticky) this.setTool(null);
     this.redraw(annot.page);
     this.store.select(annot.id);
+  }
+
+  /**
+   * Fold stylus pressure into a freehand stroke.
+   *
+   * The samples are kept on the record regardless — they are what a future variable-width renderer
+   * would need, and discarding them at capture time would make that unrecoverable. The visible
+   * effect today is a single width scaled by the mean, which is a real difference between a light
+   * annotation stroke and a deliberate one without pretending to be a paint program.
+   */
+  private applyPenPressure(draft: AnnotationDraft): void {
+    const samples = this.strokePressures;
+    this.strokePressures = [];
+    if (draft.kind !== "ink" || samples.length < 2) return;
+
+    const mean = samples.reduce((s, p) => s + p, 0) / samples.length;
+    // Devices that cannot measure pressure report a flat 0.5 for every sample; treating that as a
+    // real reading would silently thin every stroke on a mouse or a basic stylus.
+    const varies = samples.some((p) => Math.abs(p - mean) > 0.02);
+    draft.ext = { ...draft.ext, pressures: samples };
+    if (!varies || this.opts.penPressure === false) return;
+
+    const base = draft.style?.width ?? 1.8;
+    draft.style = { ...draft.style, width: Math.max(0.4, base * (0.5 + mean)) };
   }
 
   /** Programmatic creation — the scripting/test surface, and how a host imports markups. */

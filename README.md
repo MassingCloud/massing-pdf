@@ -131,12 +131,17 @@ Callouts are detected too: a keyed note reading "FIRESTOP PER SPEC 07 84 00" is 
 parsed sections, so the panel shows which sheets reference a section, and a markup dropped beside
 that note can cite it without anyone typing a section number.
 
-### Touch
+### Touch and pen
 
 Pinch to zoom, two fingers to reposition mid-markup, one finger to draw when a tool is armed and to
 scroll when one isn't. The browser competes for these gestures, so ownership is switched explicitly
 rather than left to `touch-action` defaults — and a gesture the browser claims mid-way arrives as
 `pointercancel` with no `pointerup`, which is handled rather than leaving the viewer mid-drag.
+
+A stylus suppresses touch for a short window afterwards, so the hand resting on a tablet neither
+draws nor starts a pinch under the pen. Pressure samples are kept on the record even though the
+renderer draws one width — discarding them at capture time would make variable-width rendering
+unrecoverable later.
 
 ### Search
 
@@ -307,12 +312,13 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 ```bash
 npm install
 npm run dev        # demo at :5173
-npm test           # 206 unit tests
-npm run test:e2e   # 58 browser tests (Playwright + Chromium)
+npm test           # 217 unit tests
+npm run test:e2e   # 112 browser tests (Playwright: Chromium, WebKit, Firefox)
 npm run check      # typecheck + lint + unit tests
 npm run check:all  # the above, plus the browser suite
 npm run build      # library → dist/
 npm run demo:build # standalone demo → dist-demo/
+npm run check:package  # entry points in package.json resolve to built files
 ```
 
 Requires Node 18.18+. `pdfjs-dist` and `pdf-lib` are peer dependencies and stay external in the
@@ -322,9 +328,16 @@ worker, since two versions in one page fail in confusing ways.
 ## Status
 
 Every functional area of the product spec is implemented, and both halves of the test pyramid are in
-place: **206 unit tests** for the pure logic, and **58 Playwright tests** for everything that needs a
-real browser — rasterisation, the pointer gesture loop, touch and pinch, the compare pipeline, and
-the IndexedDB adapters, none of which a headless DOM can reach.
+place: **217 unit tests** for the pure logic, and **112 Playwright tests** for everything that needs
+a real browser — rasterisation, the pointer gesture loop, touch and pinch, pen pressure and palm
+rejection, the compare pipeline, and the IndexedDB adapters, none of which a headless DOM can reach.
+
+The browser suite runs on Chromium, WebKit and Firefox, because the things it covers — per-canvas
+size limits, pointer and touch dispatch, IndexedDB semantics — are precisely where engines differ.
+
+Not yet published to npm: the package is built and validated on every release run, but the
+`@massingcloud` scope has to be claimed by hand first. See
+[docs/publishing.md](docs/publishing.md).
 
 The fixture makes the assertions checkable against the drawing rather than the implementation: the
 sample plan is drawn at `1/8" = 1'-0"` with a `144'-0"` dimension printed on it, so the measurement

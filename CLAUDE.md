@@ -38,8 +38,10 @@ src/plugins/   markup · measure · stamps · pins · markupList · search · sp
 src/adapters/  memory · indexeddb · rest · offline
 src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
-test/          206 unit tests (vitest)
-e2e/           58 browser tests (playwright) — rendering, gestures, touch, compare, adapters
+scripts/       check-package.mjs — manifest entry points resolve to built files
+test/          217 unit tests (vitest)
+e2e/           112 browser tests (playwright) — rendering, gestures, touch, pen, compare, adapters
+               runs on chromium, chromium-touch, webkit, firefox
 ```
 
 ## Commands
@@ -49,6 +51,7 @@ npm test           vitest
 npm run check      typecheck + lint + unit tests
 npm run test:e2e   playwright (needs Node 20.6+; this machine's 20.3.1 is too old)
 npm run check:all  check + e2e
+npm run check:package  manifest entry points resolve (run after build)
 npm run build      library → dist/
 npm run demo:build standalone demo → dist-demo/
 ```
@@ -74,6 +77,16 @@ npm run demo:build standalone demo → dist-demo/
   zero-ish and waves it through — check containment instead (see `changeOverlap` in migration).
 - **All text reads through `viewer.pageText(page)`**, never `doc.textItems` directly. That seam is
   what lets OCR serve a scanned page to search, specs and title-block extraction at once.
+- **A test that samples "did it render" must sample where the drawing is.** The sample sheet is
+  mostly white; the plan sits around page-space y 684–1548. Sampling the first few tiles at high
+  zoom reads pure margin, which looks exactly like a renderer that failed — it cost a wrong
+  "WebKit is broken" diagnosis. `e2e/helpers.ts` exports `INKED_POINT` for this.
+- **Restore lands after `doc:loaded`, not with it.** `persistence` replaces the whole store when the
+  adapter resolves, so anything writing markups on open must wait for `markups:restored` or watch
+  its work vanish.
+- **Firefox will not launch on this machine** (`spawn UNKNOWN`, a Windows environment issue, not a
+  code one). It runs in CI on Linux. Locally, verify with
+  `--project=chromium --project=chromium-touch --project=webkit`.
 - **Bash heredocs here collapse doubled backslashes**, so a scripted edit meant to write a regex
   word-boundary or a newline escape into source lands a literal control character instead — and the
   regex then silently matches nothing. Prefer the Edit tool for anything containing backslashes; if

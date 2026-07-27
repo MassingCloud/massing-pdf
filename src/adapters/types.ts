@@ -14,10 +14,17 @@ export interface StoreKey {
   documentId: string;
 }
 
-/** A change to push. `remove` carries only the id. */
+/**
+ * A change to push.
+ *
+ * `baseVersion` is the optimistic-concurrency token: the version this edit was made *against*.
+ * A server that honours it rejects the write when the stored version has moved on, which turns
+ * two people editing the same markup from a silent last-writer-wins into a conflict somebody can
+ * resolve. Absent on a create, since there is nothing to have moved on from.
+ */
 export type Mutation =
-  | { op: "upsert"; annot: Annotation }
-  | { op: "remove"; id: string }
+  | { op: "upsert"; annot: Annotation; baseVersion?: number }
+  | { op: "remove"; id: string; baseVersion?: number }
   | { op: "calibration"; calibration: Calibration | null; page: number }
   | { op: "sheet"; sheet: SheetMeta };
 
@@ -44,10 +51,25 @@ export interface StorageAdapter {
   online?(): boolean;
 }
 
-/** Thrown when a save is rejected because someone else changed the record first. */
+/**
+ * Thrown when a save is rejected because someone else changed the record first.
+ *
+ * Carries both sides so a caller can do something better than pick one: `theirs` is what the server
+ * holds now, `mine` is what was being written.
+ */
 export class ConflictError extends Error {
-  constructor(readonly annotId: string, readonly theirs?: Annotation) {
-    super(`markup ${annotId} was changed by someone else`);
+  constructor(
+    readonly conflicts: readonly { id: string; mine?: Annotation; theirs?: Annotation }[],
+  ) {
+    const n = conflicts.length;
+    super(
+      n === 1
+        ? `markup ${conflicts[0]!.id} was changed by someone else`
+        : `${n} markups were changed by someone else`,
+    );
     this.name = "ConflictError";
   }
+
+  /** The ids that could not be written. */
+  get ids(): string[] { return this.conflicts.map((c) => c.id); }
 }

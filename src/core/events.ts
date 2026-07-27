@@ -37,6 +37,14 @@ export interface ViewerEvents {
 
   /** Persistence lifecycle, so a host can show a sync indicator. */
   "sync:state": { state: "idle" | "saving" | "offline" | "error"; pending: number; message?: string };
+  /**
+   * Stored markups have finished loading into the store — or failed to.
+   *
+   * Restore is asynchronous and lands well after `doc:loaded`, silently replacing the whole store
+   * when it does. Anything that writes markups on open (a host seeding a review, a test) has to wait
+   * for this or watch its work get overwritten.
+   */
+  "markups:restored": { count: number; ok: boolean };
 
   /** Anything worth telling the user. Hosts wire this to their own toast system. */
   notice: { level: "info" | "success" | "warn" | "error"; message: string };

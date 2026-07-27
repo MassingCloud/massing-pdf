@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Massing PDF — drawing review</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex;
+        flex-direction: column;
+        background: #16181c;
+        color: #e8eaed;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+
+      #shell { position: relative; flex: 1; min-height: 0; }
+
+      #drop {
+        position: absolute;
+        inset: 0;
+        z-index: 40;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #16181c;
+        text-align: center;
+      }
+      #drop.is-hidden { display: none; }
+      #drop.is-over { background: #1d2733; outline: 2px dashed #4a8cff; outline-offset: -14px; }
+
+      .card { max-width: 560px; }
+      .card h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.01em; }
+      .card p { margin: 0 0 18px; color: #98a0ab; line-height: 1.55; font-size: 14px; }
+      .card ul { margin: 0 0 20px; padding-left: 18px; color: #98a0ab; font-size: 13px; line-height: 1.7; text-align: left; }
+      .card kbd {
+        padding: 1px 5px;
+        border: 1px solid #3a3f47;
+        border-radius: 4px;
+        background: #23262d;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+      }
+
+      .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+      button.primary, label.primary {
+        padding: 9px 16px;
+        border: 1px solid #4a8cff;
+        border-radius: 6px;
+        background: #4a8cff;
+        color: #fff;
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button.ghost {
+        padding: 9px 16px;
+        border: 1px solid #3a3f47;
+        border-radius: 6px;
+        background: transparent;
+        color: #e8eaed;
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button.ghost:hover, button.primary:hover, label.primary:hover { filter: brightness(1.12); }
+      input[type="file"] { display: none; }
+
+      #err {
+        margin-top: 16px;
+        padding: 10px 12px;
+        border: 1px solid #8a1f1f;
+        border-radius: 6px;
+        background: #2a1618;
+        color: #ffb4ad;
+        font-size: 13px;
+        text-align: left;
+        white-space: pre-wrap;
+      }
+      #err:empty { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="shell">
+      <div id="viewer"></div>
+      <div id="drop">
+        <div class="card">
+          <h1>Massing PDF</h1>
+          <p>
+            A construction drawing review desk: markup, calibrated takeoff, issue pins,
+            revision compare, and XFDF&nbsp;/&nbsp;BCF interchange. Everything runs in this tab —
+            no upload, no server, and your markups are stored locally in this browser.
+          </p>
+          <ul>
+            <li>Pick a drawing scale (or draw a calibration line), then measure.</li>
+            <li><kbd>c</kbd> revision cloud · <kbd>p</kbd> issue pin · <kbd>d</kbd> distance · <kbd>e</kbd> area · <kbd>n</kbd> count</li>
+            <li><kbd>v</kbd> select · <kbd>Esc</kbd> cancel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+scroll to zoom</li>
+            <li>Polygon tools: click each vertex, then double-click or <kbd>Enter</kbd> to finish.</li>
+          </ul>
+          <div class="row">
+            <label class="primary" for="file">Open a PDF…</label>
+            <input id="file" type="file" accept=".pdf,application/pdf" />
+            <button class="ghost" id="sample">Load a sample sheet</button>
+          </div>
+          <div id="err"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

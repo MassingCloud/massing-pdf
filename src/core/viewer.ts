@@ -1,0 +1,887 @@
+/**
+ * The kernel.
+ *
+ * Owns the document, the page layout, zoom/pan/rotation, the annotation overlay, hit-testing,
+ * selection, the tool gesture loop, and the plugin registries. It owns no domain knowledge: it does
+ * not know what a revision cloud means, only that a tool asked for a `cloud` with four points.
+ */
+import { PdfDocument, type PdfSource } from "./document";
+import { PageView } from "./renderer";
+import { EventBus, type EventName, type Handler, type Unsubscribe } from "./events";
+import { AnnotationStore } from "./store";
+import {
+  displaySize, displayToPage, eventToPage, normalizeRotation, rotationTransform, type Rotation,
+} from "./coords";
+import { bbox, distToPath, pointInPolygon, simplify, snapAngle } from "./geometry";
+import { measure } from "./units";
+import { drawAnnotation, drawDraft, el } from "../render/svg";
+import type {
+  ActionDef, KindRenderer, PanelDef, PluginContext, ToolDef, ViewerPlugin,
+} from "./plugin";
+import type { Annotation, AnnotationDraft, AnnotKind, Pt } from "./types";
+import { POINT_KINDS } from "./types";
+
+export interface ViewerOptions {
+  /** Where to mount. The viewer takes over this element's contents. */
+  container: HTMLElement;
+  /** Who is marking up. */
+  author?: string;
+  org?: string;
+  /** Start zoom, or a fit mode applied once the document loads. */
+  initialZoom?: number | "fit-width" | "fit-page";
+  /** Render every page in one scroller (the default) or one page at a time. */
+  layout?: "continuous" | "single";
+  /** Read-only: tools and editing are disabled, viewing and export are not. */
+  readOnly?: boolean;
+  /** Imperial lengths render as feet-and-inches. */
+  feetInches?: boolean;
+  /** Map a page to a stable sheet key so markups survive a re-issued container file. */
+  sheetIdFor?: (page: number) => string;
+  /** Plugins to install at construction. More can be added with `use()` before `load()`. */
+  plugins?: ViewerPlugin[];
+}
+
+/** One page's DOM: raster surface + annotation overlay, stacked in a positioned wrapper. */
+interface PageLayer {
+  page: number;
+  wrap: HTMLDivElement;
+  view: PageView;
+  overlay: SVGSVGElement;
+  /** The group carrying the rotation transform; annotations go inside it. */
+  content: SVGGElement;
+  dirty: boolean;
+}
+
+const ZOOM_MIN = 0.08;
+const ZOOM_MAX = 16;
+const PAGE_GAP = 16;
+
+export class Viewer {
+  readonly bus = new EventBus();
+  readonly store: AnnotationStore;
+  readonly el: {
+    root: HTMLDivElement;
+    toolbar: HTMLDivElement;
+    body: HTMLDivElement;
+    left: HTMLElement;
+    scroll: HTMLDivElement;
+    pages: HTMLDivElement;
+    right: HTMLElement;
+    status: HTMLDivElement;
+  };
+
+  doc: PdfDocument | null = null;
+
+  private opts: ViewerOptions;
+  private layers = new Map<number, PageLayer>();
+  private _zoom = 1;
+  private _rotation: Rotation = 0;
+  private _page = 1;
+  private pendingFit: "fit-width" | "fit-page" | null = null;
+
+  private tools = new Map<string, ToolDef>();
+  private actions = new Map<string, ActionDef>();
+  private panels: PanelDef[] = [];
+  private renderers: KindRenderer[] = [];
+  private plugins: ViewerPlugin[] = [];
+  private cleanups: (() => void)[] = [];
+
+  private activeToolId: string | null = null;
+  /** Points collected so far in the current gesture, page space. */
+  private draft: Pt[] = [];
+  private draftPage = 1;
+  private gesture: GestureState | null = null;
+  private destroyed = false;
+  private scrollRaf = 0;
+
+  constructor(opts: ViewerOptions) {
+    this.opts = opts;
+    this.el = buildShell(opts.container);
+    this.store = new AnnotationStore({
+      bus: this.bus,
+      author: () => this.opts.author ?? "unknown",
+      org: () => this.opts.org,
+      pageSize: (p) => this.doc?.pageInfoSync(p),
+      ...(opts.sheetIdFor ? { sheetIdFor: opts.sheetIdFor } : {}),
+    });
+    if (typeof opts.initialZoom === "number") this._zoom = opts.initialZoom;
+    else this.pendingFit = opts.initialZoom ?? "fit-width";
+
+    this.wireStore();
+    this.wireInput();
+    for (const p of opts.plugins ?? []) void this.use(p);
+  }
+
+  // ---- lifecycle -----------------------------------------------------------
+
+  /** Install a plugin. Safe before or after `load()`. */
+  async use(plugin: ViewerPlugin): Promise<this> {
+    if (this.plugins.some((p) => p.id === plugin.id)) return this;
+    this.plugins.push(plugin);
+    this.plugins.sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+    const ctx: PluginContext = {
+      viewer: this,
+      bus: this.bus,
+      store: this.store,
+      registerTool: (t) => { this.tools.set(t.id, t); },
+      registerAction: (a) => { this.actions.set(a.id, a); },
+      registerPanel: (p) => { this.panels.push(p); this.panels.sort((a, b) => (a.order ?? 100) - (b.order ?? 100)); },
+      registerRenderer: (r) => { this.renderers.push(r); },
+      onCleanup: (fn) => { this.cleanups.push(fn); },
+    };
+    await plugin.setup(ctx);
+    return this;
+  }
+
+  /** Load a PDF. Replaces any open document; markups are *not* cleared (a slip-sheet keeps them). */
+  async load(source: PdfSource, opts: { keepMarkups?: boolean } = {}): Promise<PdfDocument> {
+    this.closeDoc();
+    const doc = await PdfDocument.load(source);
+    this.doc = doc;
+    await doc.primeInfo();
+    if (!opts.keepMarkups) { this.store.reset([], { undoable: false }); this.store.clearHistory(); }
+    this._page = 1;
+    await this.buildPages();
+    if (this.pendingFit) { await this.applyFit(this.pendingFit); this.pendingFit = null; }
+    else await this.applyZoom();
+    this.bus.emit("doc:loaded", { name: doc.name, pages: doc.numPages, fingerprint: doc.fingerprint });
+    this.mountPanels();
+    return doc;
+  }
+
+  private closeDoc(): void {
+    for (const l of this.layers.values()) { l.view.destroy(); l.wrap.remove(); }
+    this.layers.clear();
+    if (this.doc) { this.doc.destroy(); this.doc = null; this.bus.emit("doc:closed", undefined); }
+  }
+
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    for (const fn of this.cleanups.splice(0)) { try { fn(); } catch (e) { console.error(e); } }
+    for (const p of this.plugins) { try { p.teardown?.(); } catch (e) { console.error(e); } }
+    this.closeDoc();
+    this.bus.clear();
+    this.el.root.remove();
+  }
+
+  // ---- registries ----------------------------------------------------------
+
+  get toolList(): ToolDef[] { return [...this.tools.values()]; }
+  get actionList(): ActionDef[] { return [...this.actions.values()]; }
+  get panelList(): PanelDef[] { return [...this.panels]; }
+  tool(id: string): ToolDef | undefined { return this.tools.get(id); }
+  action(id: string): ActionDef | undefined { return this.actions.get(id); }
+
+  get activeTool(): ToolDef | null {
+    return this.activeToolId ? this.tools.get(this.activeToolId) ?? null : null;
+  }
+
+  /** Enter a drawing mode, or `null` for select. */
+  setTool(id: string | null): void {
+    if (this.opts.readOnly) id = null;
+    if (id === this.activeToolId) return;
+    this.activeTool?.deactivate?.(this);
+    this.cancelDraft();
+    this.activeToolId = id && this.tools.has(id) ? id : null;
+    const t = this.activeTool;
+    t?.activate?.(this);
+    this.el.pages.style.cursor = t?.cursor ?? (t ? "crosshair" : "default");
+    this.bus.emit("tool:changed", { id: this.activeToolId });
+  }
+
+  async runAction(id: string): Promise<void> {
+    const a = this.actions.get(id);
+    if (!a) return;
+    if (a.enabled && !a.enabled(this)) return;
+    await a.run(this);
+  }
+
+  get readOnly(): boolean { return Boolean(this.opts.readOnly); }
+  setReadOnly(v: boolean): void {
+    this.opts.readOnly = v;
+    if (v) this.setTool(null);
+  }
+
+  get author(): string { return this.opts.author ?? "unknown"; }
+  setAuthor(name: string, org?: string): void {
+    this.opts.author = name;
+    if (org !== undefined) this.opts.org = org;
+  }
+
+  get feetInches(): boolean { return this.opts.feetInches ?? true; }
+
+  // ---- view state ----------------------------------------------------------
+
+  get zoom(): number { return this._zoom; }
+  get rotation(): Rotation { return this._rotation; }
+  get page(): number { return this._page; }
+  get numPages(): number { return this.doc?.numPages ?? 0; }
+
+  async setZoom(z: number, anchor?: { clientX: number; clientY: number }): Promise<void> {
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    if (Math.abs(next - this._zoom) < 1e-6) return;
+    const s = this.el.scroll;
+    // Keep the point under the cursor fixed — the difference between usable and infuriating.
+    const ax = anchor ? anchor.clientX - s.getBoundingClientRect().left : s.clientWidth / 2;
+    const ay = anchor ? anchor.clientY - s.getBoundingClientRect().top : s.clientHeight / 2;
+    const fx = (s.scrollLeft + ax) / this._zoom;
+    const fy = (s.scrollTop + ay) / this._zoom;
+    this._zoom = next;
+    await this.applyZoom();
+    s.scrollLeft = fx * next - ax;
+    s.scrollTop = fy * next - ay;
+    this.emitView();
+  }
+
+  zoomIn(anchor?: { clientX: number; clientY: number }): Promise<void> { return this.setZoom(this._zoom * 1.25, anchor); }
+  zoomOut(anchor?: { clientX: number; clientY: number }): Promise<void> { return this.setZoom(this._zoom / 1.25, anchor); }
+
+  async fitWidth(): Promise<void> { await this.applyFit("fit-width"); }
+  async fitPage(): Promise<void> { await this.applyFit("fit-page"); }
+
+  private async applyFit(mode: "fit-width" | "fit-page"): Promise<void> {
+    const info = this.doc?.pageInfoSync(this._page);
+    if (!info) { this.pendingFit = mode; return; }
+    const d = displaySize(info.width, info.height, this._rotation);
+    const availW = this.el.scroll.clientWidth - 48;
+    const availH = this.el.scroll.clientHeight - 48;
+    const z = mode === "fit-width" ? availW / d.w : Math.min(availW / d.w, availH / d.h);
+    this._zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    await this.applyZoom();
+    this.emitView();
+  }
+
+  /** Rotate the view by a multiple of 90°. Markup geometry is untouched. */
+  async rotate(deltaDeg: number): Promise<void> {
+    this._rotation = normalizeRotation(this._rotation + deltaDeg);
+    await this.applyZoom();
+    this.emitView();
+  }
+
+  /** Scroll a page into view and make it current. */
+  async goToPage(n: number): Promise<void> {
+    const page = Math.min(Math.max(1, Math.round(n)), this.numPages || 1);
+    const layer = this.layers.get(page);
+    this._page = page;
+    if (layer) this.el.scroll.scrollTop = layer.wrap.offsetTop - 8;
+    this.bus.emit("page:changed", { page });
+    this.emitView();
+    this.updateVisible();
+  }
+
+  /** Centre the view on a markup, zooming in if it is small on screen. */
+  async goToAnnotation(a: Annotation, opts: { zoom?: boolean } = {}): Promise<void> {
+    await this.goToPage(a.page);
+    const info = this.doc?.pageInfoSync(a.page);
+    const layer = this.layers.get(a.page);
+    if (!info || !layer) return;
+    const b = bbox(a.points);
+    if (opts.zoom !== false && b.w > 0 && b.h > 0) {
+      const target = Math.min(4, Math.max(0.5, Math.min(
+        (this.el.scroll.clientWidth * 0.6) / (b.w || 1),
+        (this.el.scroll.clientHeight * 0.6) / (b.h || 1),
+      )));
+      if (target > this._zoom) { this._zoom = target; await this.applyZoom(); }
+    }
+    const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    const d = this.pageToLocal(c, info.width, info.height);
+    this.el.scroll.scrollLeft = layer.wrap.offsetLeft + d.x - this.el.scroll.clientWidth / 2;
+    this.el.scroll.scrollTop = layer.wrap.offsetTop + d.y - this.el.scroll.clientHeight / 2;
+    this.emitView();
+    this.updateVisible();
+  }
+
+  private pageToLocal(p: Pt, w: number, h: number): Pt {
+    const d = this._rotation === 0 ? p
+      : this._rotation === 90 ? { x: h - p.y, y: p.x }
+      : this._rotation === 180 ? { x: w - p.x, y: h - p.y }
+      : { x: p.y, y: w - p.x };
+    return { x: d.x * this._zoom, y: d.y * this._zoom };
+  }
+
+  private emitView(): void {
+    this.bus.emit("view:changed", { zoom: this._zoom, page: this._page, rotation: this._rotation });
+  }
+
+  // ---- layout --------------------------------------------------------------
+
+  private async buildPages(): Promise<void> {
+    const doc = this.doc;
+    if (!doc) return;
+    this.el.pages.innerHTML = "";
+    const pages = this.opts.layout === "single" ? [this._page] : rangeOf(doc.numPages);
+    for (const n of pages) this.layers.set(n, this.makeLayer(n));
+    for (const n of pages) this.el.pages.appendChild(this.layers.get(n)!.wrap);
+  }
+
+  private makeLayer(page: number): PageLayer {
+    const wrap = document.createElement("div");
+    wrap.className = "mpdf-page-wrap";
+    wrap.dataset.page = String(page);
+    const view = new PageView({
+      doc: this.doc!,
+      page,
+      onRendered: (p, s) => this.bus.emit("page:rendered", { page: p, scale: s }),
+    });
+    const overlay = el("svg", { class: "mpdf-overlay" }) as SVGSVGElement;
+    overlay.dataset.page = String(page);
+    const content = el("g", { class: "mpdf-overlay-content" });
+    overlay.appendChild(content);
+    wrap.append(view.el, overlay);
+    return { page, wrap, view, overlay, content, dirty: true };
+  }
+
+  /** Push the current zoom/rotation into every page, then repaint what's on screen. */
+  private async applyZoom(): Promise<void> {
+    const doc = this.doc;
+    if (!doc) return;
+    for (const layer of this.layers.values()) {
+      const info = doc.pageInfoSync(layer.page);
+      if (!info) continue;
+      await layer.view.setTransform(this._zoom, this._rotation);
+      const d = displaySize(info.width, info.height, this._rotation);
+      const css = { w: d.w * this._zoom, h: d.h * this._zoom };
+      layer.wrap.style.width = `${css.w}px`;
+      layer.wrap.style.height = `${css.h}px`;
+      layer.overlay.setAttribute("width", String(css.w));
+      layer.overlay.setAttribute("height", String(css.h));
+      layer.overlay.setAttribute("viewBox", `0 0 ${d.w} ${d.h}`);
+      const t = rotationTransform(info.width, info.height, this._rotation);
+      if (t) layer.content.setAttribute("transform", t);
+      else layer.content.removeAttribute("transform");
+      layer.dirty = true;
+    }
+    this.updateVisible();
+    this.redraw();
+  }
+
+  /**
+   * Raster the pages intersecting the scroll viewport; release those far away.
+   *
+   * Rasterisation is deliberately *not* awaited. pdf.js drives its canvas render loop from
+   * `requestAnimationFrame`, which browsers stop firing in a background tab — so awaiting the
+   * pixels would make `load()` (and every zoom) hang until the tab is foregrounded again. Layout is
+   * synchronous and settled by the time this returns; painting catches up and announces itself via
+   * `page:rendered`.
+   */
+  private updateVisible(): void {
+    const s = this.el.scroll;
+    const top = s.scrollTop, bottom = top + s.clientHeight;
+    let best: { page: number; overlap: number } | null = null;
+    for (const layer of this.layers.values()) {
+      const y0 = layer.wrap.offsetTop, y1 = y0 + layer.wrap.offsetHeight;
+      const overlap = Math.min(bottom, y1) - Math.max(top, y0);
+      if (overlap <= 0) {
+        // Two screens of slack before dropping rasters, so a flick-scroll back is instant.
+        if (y1 < top - s.clientHeight * 2 || y0 > bottom + s.clientHeight * 2) layer.view.release();
+        continue;
+      }
+      if (!best || overlap > best.overlap) best = { page: layer.page, overlap };
+      void layer.view.update({
+        x: Math.max(0, s.scrollLeft - layer.wrap.offsetLeft),
+        y: Math.max(0, top - y0),
+        w: s.clientWidth,
+        h: s.clientHeight,
+      }).catch((e: unknown) => console.warn(`[massing-pdf] page ${layer.page} raster failed`, e));
+    }
+    if (best && best.page !== this._page) {
+      this._page = best.page;
+      this.bus.emit("page:changed", { page: best.page });
+    }
+  }
+
+  private mountPanels(): void {
+    for (const side of ["left", "right"] as const) {
+      const host = this.el[side];
+      host.innerHTML = "";
+      const mine = this.panels.filter((p) => (p.side ?? "right") === side);
+      host.style.display = mine.length ? "" : "none";
+      for (const p of mine) {
+        const box = document.createElement("section");
+        box.className = "mpdf-panel";
+        box.dataset.panel = p.id;
+        const h = document.createElement("header");
+        h.className = "mpdf-panel-title";
+        h.textContent = p.title;
+        const bodyEl = document.createElement("div");
+        bodyEl.className = "mpdf-panel-body";
+        box.append(h, bodyEl);
+        host.appendChild(box);
+        const dispose = p.mount(bodyEl, this);
+        if (typeof dispose === "function") this.cleanups.push(dispose);
+      }
+    }
+  }
+
+  // ---- overlay drawing -----------------------------------------------------
+
+  /** Repaint annotation overlays. Omit `page` to repaint every mounted page. */
+  redraw(page?: number): void {
+    const list = page !== undefined
+      ? [this.layers.get(page)].filter((l): l is PageLayer => !!l)
+      : [...this.layers.values()];
+    for (const layer of list) this.paint(layer);
+  }
+
+  private paint(layer: PageLayer): void {
+    const content = layer.content;
+    content.textContent = "";
+    const ctx = {
+      zoom: this._zoom,
+      viewer: this,
+      el,
+      selected: false,
+    };
+    for (const a of this.store.visibleOnPage(layer.page)) {
+      const selected = this.store.isSelected(a.id);
+      const custom = this.renderers.find((r) => r.kinds.includes(a.kind));
+      if (custom) {
+        const out = custom.render(a, { ...ctx, selected });
+        if (!out) continue;
+        const g = el("g", { "data-annot": a.id, "data-kind": a.kind, class: "mpdf-annot" });
+        for (const node of Array.isArray(out) ? out : [out]) g.appendChild(node);
+        content.appendChild(g);
+      } else {
+        content.appendChild(drawAnnotation(a, { zoom: this._zoom, selected, feetInches: this.feetInches }));
+      }
+    }
+    if (this.draft.length && this.draftPage === layer.page && this.activeTool) {
+      content.appendChild(drawDraft(this.activeTool.kind, this.draft, this._zoom));
+    }
+  }
+
+  private wireStore(): void {
+    const repaint = () => this.redraw();
+    for (const ev of ["annot:added", "annot:updated", "annot:removed", "annot:reset", "annot:selected", "filter:changed"] as const) {
+      this.bus.on(ev, repaint);
+    }
+  }
+
+  // ---- hit testing ---------------------------------------------------------
+
+  /**
+   * The topmost markup within `tolerance` *screen* pixels of a page-space point. Later markups win,
+   * matching the paint order — the thing drawn on top is the thing you grab.
+   */
+  hitTest(page: number, p: Pt, tolerancePx = 6): Annotation | null {
+    const tol = tolerancePx / this._zoom;
+    const list = this.store.visibleOnPage(page);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const a = list[i]!;
+      if (this.hits(a, p, tol)) return a;
+    }
+    return null;
+  }
+
+  private hits(a: Annotation, p: Pt, tol: number): boolean {
+    const pts = a.points;
+    if (!pts.length) return false;
+    if (POINT_KINDS.includes(a.kind)) {
+      // Point markups get a generous target — a pin is drawn at screen scale, so its target is too.
+      const r = a.kind === "pin" ? 18 / this._zoom : Math.max(tol, 10 / this._zoom);
+      return pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) <= r);
+    }
+    if (BOX_KINDS.has(a.kind)) {
+      if (pts.length < 2) return false;
+      const b = bbox([pts[0]!, pts[1]!]);
+      const inside = p.x >= b.x - tol && p.x <= b.x + b.w + tol && p.y >= b.y - tol && p.y <= b.y + b.h + tol;
+      if (!inside) return false;
+      // Filled shapes are grabbable anywhere; outlines only near the edge, so you can still click
+      // through a large empty rectangle to what is underneath it.
+      if (a.style?.fill || a.kind === "highlight") return true;
+      const edge = distToPath(p, [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x + b.w, y: b.y + b.h }, { x: b.x, y: b.y + b.h }], true);
+      return edge <= tol * 2;
+    }
+    if (CLOSED_KINDS.has(a.kind)) {
+      if (pointInPolygon(p, pts)) return true;
+      return distToPath(p, pts, true) <= tol * 2;
+    }
+    return distToPath(p, pts, false) <= tol * 2;
+  }
+
+  // ---- gesture loop --------------------------------------------------------
+
+  private wireInput(): void {
+    const pages = this.el.pages;
+    const scroll = this.el.scroll;
+
+    const onDown = (e: PointerEvent) => this.onPointerDown(e);
+    const onMove = (e: PointerEvent) => this.onPointerMove(e);
+    const onUp = (e: PointerEvent) => this.onPointerUp(e);
+    const onDbl = (e: MouseEvent) => this.onDoubleClick(e);
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      void this.setZoom(this._zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e);
+    };
+    const onScroll = () => {
+      if (this.scrollRaf) return;
+      this.scrollRaf = requestAnimationFrame(() => { this.scrollRaf = 0; this.updateVisible(); });
+    };
+    const onKey = (e: KeyboardEvent) => this.onKeyDown(e);
+
+    pages.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    pages.addEventListener("dblclick", onDbl);
+    scroll.addEventListener("wheel", onWheel, { passive: false });
+    scroll.addEventListener("scroll", onScroll, { passive: true });
+    this.el.root.addEventListener("keydown", onKey);
+    this.el.root.tabIndex = 0;
+
+    const ro = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => this.updateVisible())
+      : null;
+    ro?.observe(scroll);
+
+    this.cleanups.push(() => {
+      pages.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      pages.removeEventListener("dblclick", onDbl);
+      scroll.removeEventListener("wheel", onWheel);
+      scroll.removeEventListener("scroll", onScroll);
+      this.el.root.removeEventListener("keydown", onKey);
+      ro?.disconnect();
+      if (this.scrollRaf) cancelAnimationFrame(this.scrollRaf);
+    });
+  }
+
+  /** Locate the page under an event and convert to page space. */
+  private locate(e: { clientX: number; clientY: number; target: EventTarget | null }): { page: number; pt: Pt } | null {
+    const node = e.target instanceof Element ? e.target.closest<HTMLElement>(".mpdf-page-wrap") : null;
+    const page = node ? Number(node.dataset.page) : this._page;
+    const layer = this.layers.get(page);
+    const info = this.doc?.pageInfoSync(page);
+    if (!layer || !info) return null;
+    const rect = layer.overlay.getBoundingClientRect();
+    return { page, pt: eventToPage(e, rect, this._zoom, info.width, info.height, this._rotation) };
+  }
+
+  private onPointerDown(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    this.el.root.focus({ preventScroll: true });
+    const at = this.locate(e);
+    if (!at) return;
+    const tool = this.activeTool;
+
+    if (!tool) { this.beginSelect(e, at.page, at.pt); return; }
+    if (this.opts.readOnly) return;
+
+    this.draftPage = at.page;
+    switch (tool.input) {
+      case "click":
+        this.draft = [at.pt];
+        void this.commit(tool, e);
+        break;
+      case "drag":
+        this.gesture = { mode: "draw", start: at.pt, page: at.page, pointerId: e.pointerId };
+        this.draft = [at.pt, at.pt];
+        this.el.pages.setPointerCapture?.(e.pointerId);
+        break;
+      case "freehand":
+        this.gesture = { mode: "draw", start: at.pt, page: at.page, pointerId: e.pointerId };
+        this.draft = [at.pt];
+        this.el.pages.setPointerCapture?.(e.pointerId);
+        break;
+      case "poly": {
+        // A poly gesture spans clicks; only reset when starting on a different page.
+        if (this.draft.length && this.draftPage !== at.page) this.draft = [];
+        this.draft.push(at.pt);
+        const max = tool.maxPoints;
+        if (max && this.draft.length >= max) void this.commit(tool, e);
+        break;
+      }
+    }
+    this.redraw(at.page);
+  }
+
+  private onPointerMove(e: PointerEvent): void {
+    const g = this.gesture;
+    if (!g) {
+      // Live rubber-band for poly tools: the segment from the last vertex to the cursor.
+      if (this.activeTool?.input === "poly" && this.draft.length) {
+        const at = this.locate(e);
+        if (at && at.page === this.draftPage) {
+          const pts = [...this.draft, e.shiftKey ? snapAngle(this.draft[this.draft.length - 1]!, at.pt) : at.pt];
+          this.paintDraftPreview(pts);
+        }
+      }
+      return;
+    }
+    const at = this.locate(e);
+    if (!at) return;
+
+    if (g.mode === "draw") {
+      const tool = this.activeTool;
+      if (!tool) return;
+      if (tool.input === "freehand") this.draft.push(at.pt);
+      else this.draft = [g.start, e.shiftKey ? snapAngle(g.start, at.pt) : at.pt];
+      this.redraw(g.page);
+      return;
+    }
+
+    if (g.mode === "move") {
+      const dx = at.pt.x - g.start.x, dy = at.pt.y - g.start.y;
+      for (const [id, orig] of g.originals) {
+        this.store.update(id, { points: orig.map((p) => ({ x: p.x + dx, y: p.y + dy })) }, { bump: false, undoable: false });
+      }
+      g.moved = true;
+      return;
+    }
+
+    if (g.mode === "vertex") {
+      const orig = g.originals.get(g.id);
+      if (!orig) return;
+      const pts = orig.map((p, i) => (i === g.index ? at.pt : p));
+      this.store.update(g.id, { points: pts }, { bump: false, undoable: false });
+      g.moved = true;
+    }
+  }
+
+  private onPointerUp(e: PointerEvent): void {
+    const g = this.gesture;
+    if (!g) return;
+    this.gesture = null;
+    this.el.pages.releasePointerCapture?.(e.pointerId);
+
+    if (g.mode === "draw") {
+      const tool = this.activeTool;
+      if (!tool) { this.cancelDraft(); return; }
+      if (tool.input === "freehand") this.draft = simplify(this.draft, 0.6 / this._zoom);
+      // A click that never moved is not a drag — discard rather than create a zero-size markup.
+      const b = bbox(this.draft);
+      if (tool.input === "drag" && b.w * this._zoom < 3 && b.h * this._zoom < 3) { this.cancelDraft(); return; }
+      if (tool.input === "freehand" && this.draft.length < 2) { this.cancelDraft(); return; }
+      void this.commit(tool, e);
+      return;
+    }
+
+    // A move/vertex drag was applied frame-by-frame without history; record one step for the whole
+    // gesture now, so undo reverses the drag rather than the last pixel of it.
+    if (g.moved) {
+      const patches = [...g.originals.keys()]
+        .map((id) => ({ id, annot: this.store.get(id) }))
+        .filter((x): x is { id: string; annot: Annotation } => !!x.annot);
+      // Restore the pre-drag geometry silently, then re-apply it as one undoable update.
+      for (const { id } of patches) {
+        const orig = g.originals.get(id)!;
+        this.store.update(id, { points: orig }, { bump: false, undoable: false });
+      }
+      this.store.updateMany(patches.map(({ id, annot }) => ({ id, patch: { points: annot.points } })));
+    }
+  }
+
+  private onDoubleClick(e: MouseEvent): void {
+    const tool = this.activeTool;
+    if (tool?.input === "poly" && this.draft.length >= (tool.minPoints ?? 2)) {
+      e.preventDefault();
+      void this.commit(tool, e);
+      return;
+    }
+    if (tool) return;
+    const at = this.locate(e);
+    if (!at) return;
+    const hit = this.hitTest(at.page, at.pt);
+    if (hit) this.bus.emit("annot:activated", { annot: hit });
+  }
+
+  private onKeyDown(e: KeyboardEvent): void {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) this.store.redo(); else this.store.undo();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); this.store.redo(); return; }
+    if (mod && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      this.store.select(this.store.visibleOnPage(this._page).map((a) => a.id));
+      return;
+    }
+    if (e.key === "Escape") {
+      if (this.draft.length) this.cancelDraft();
+      else if (this.activeToolId) this.setTool(null);
+      else this.store.select(null);
+      return;
+    }
+    if (e.key === "Enter") {
+      const tool = this.activeTool;
+      if (tool?.input === "poly" && this.draft.length >= (tool.minPoints ?? 2)) { e.preventDefault(); void this.commit(tool, e); }
+      return;
+    }
+    if ((e.key === "Delete" || e.key === "Backspace") && !this.opts.readOnly) {
+      if (this.store.selectedIds().length) { e.preventDefault(); this.store.removeSelected(); }
+      return;
+    }
+    if (mod || e.altKey) return;
+    // Single-key tool and action shortcuts.
+    for (const t of this.tools.values()) if (t.shortcut === e.key) { e.preventDefault(); this.setTool(t.id); return; }
+    for (const a of this.actions.values()) if (a.shortcut === e.key) { e.preventDefault(); void this.runAction(a.id); return; }
+  }
+
+  private beginSelect(e: PointerEvent, page: number, pt: Pt): void {
+    const hit = this.hitTest(page, pt);
+    if (!hit) { if (!e.shiftKey) this.store.select(null); return; }
+
+    // Grabbing a vertex handle of an already-selected markup edits geometry; grabbing its body moves it.
+    if (this.store.isSelected(hit.id) && !e.shiftKey) {
+      const idx = this.nearestVertex(hit, pt, 8 / this._zoom);
+      if (idx >= 0 && !hit.locked && !this.opts.readOnly) {
+        this.gesture = { mode: "vertex", id: hit.id, index: idx, start: pt, page, pointerId: e.pointerId, moved: false, originals: new Map([[hit.id, hit.points]]) };
+        this.el.pages.setPointerCapture?.(e.pointerId);
+        return;
+      }
+    }
+    if (!this.store.isSelected(hit.id)) this.store.select(hit.id, e.shiftKey);
+    if (this.opts.readOnly) return;
+    const originals = new Map<string, Pt[]>();
+    for (const a of this.store.selected()) if (!a.locked) originals.set(a.id, a.points);
+    if (!originals.size) return;
+    this.gesture = { mode: "move", start: pt, page, pointerId: e.pointerId, moved: false, originals };
+    this.el.pages.setPointerCapture?.(e.pointerId);
+  }
+
+  private nearestVertex(a: Annotation, p: Pt, tol: number): number {
+    let best = -1, bestD = tol;
+    a.points.forEach((q, i) => {
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d <= bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
+
+  /** Repaint only the in-progress preview, without rebuilding committed markups. */
+  private paintDraftPreview(pts: Pt[]): void {
+    const layer = this.layers.get(this.draftPage);
+    const tool = this.activeTool;
+    if (!layer || !tool) return;
+    layer.content.querySelector(".mpdf-draft")?.remove();
+    layer.content.appendChild(drawDraft(tool.kind, pts, this._zoom));
+  }
+
+  private cancelDraft(): void {
+    if (!this.draft.length) return;
+    const page = this.draftPage;
+    this.draft = [];
+    this.gesture = null;
+    this.redraw(page);
+    this.bus.emit("tool:draft", null);
+  }
+
+  /** Turn the collected gesture into a stored annotation. */
+  private async commit(tool: ToolDef, e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): Promise<void> {
+    const points = this.draft;
+    const page = this.draftPage;
+    const min = tool.minPoints ?? (tool.input === "click" ? 1 : 2);
+    if (points.length < min) { this.cancelDraft(); return; }
+
+    if (tool.needsCalibration && !this.store.calibration(page)) {
+      this.bus.emit("notice", { level: "error", message: "Set the drawing scale before measuring — use Calibrate or pick a scale preset." });
+      this.cancelDraft();
+      return;
+    }
+
+    this.draft = [];
+    let draft: AnnotationDraft | null;
+    try {
+      draft = tool.create
+        ? await tool.create({
+            points, page, viewer: this,
+            modifiers: { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey },
+          })
+        : { kind: tool.kind, points, page };
+    } catch (err) {
+      this.bus.emit("notice", { level: "error", message: `${tool.label} failed: ${(err as Error).message}` });
+      this.redraw(page);
+      return;
+    }
+    if (!draft) { this.redraw(page); return; }
+
+    // Measurements get their quantity from the kernel so every tool computes it the same way.
+    if (!draft.quantity) {
+      const q = measure(draft.kind, draft.points, this.store.calibration(page));
+      if (q) draft.quantity = q;
+    }
+    const annot = this.store.add({ ...draft, page: draft.page ?? page });
+    if (!tool.sticky) this.setTool(null);
+    this.redraw(page);
+    this.store.select(annot.id);
+  }
+
+  /** Programmatic creation — the scripting/test surface, and how a host imports markups. */
+  addAnnotation(draft: AnnotationDraft): Annotation {
+    if (!draft.quantity) {
+      const q = measure(draft.kind, draft.points, this.store.calibration(draft.page));
+      if (q) draft.quantity = q;
+    }
+    const a = this.store.add(draft);
+    this.redraw(draft.page);
+    return a;
+  }
+
+  /** Recompute every measurement on a page after its calibration changed. */
+  recalculatePage(page: number): void {
+    const cal = this.store.calibration(page);
+    if (!cal) return;
+    const patches = this.store.onPage(page)
+      .filter((a) => a.quantity)
+      .map((a) => ({ id: a.id, patch: { quantity: measure(a.kind, a.points, cal) ?? a.quantity } }));
+    if (patches.length) this.store.updateMany(patches);
+  }
+
+  /** Convert a client point to page space on a given page — for hosts driving the viewer. */
+  clientToPage(clientX: number, clientY: number, page = this._page): Pt | null {
+    const layer = this.layers.get(page);
+    const info = this.doc?.pageInfoSync(page);
+    if (!layer || !info) return null;
+    const rect = layer.overlay.getBoundingClientRect();
+    return displayToPage(
+      { x: (clientX - rect.left) / this._zoom, y: (clientY - rect.top) / this._zoom },
+      info.width, info.height, this._rotation,
+    );
+  }
+
+  /** Subscribe to a viewer event. Sugar for `viewer.bus.on`. */
+  on<K extends EventName>(name: K, fn: Handler<K>): Unsubscribe {
+    return this.bus.on(name, fn);
+  }
+}
+
+type GestureState =
+  | { mode: "draw"; start: Pt; page: number; pointerId: number }
+  | { mode: "move"; start: Pt; page: number; pointerId: number; moved: boolean; originals: Map<string, Pt[]> }
+  | { mode: "vertex"; id: string; index: number; start: Pt; page: number; pointerId: number; moved: boolean; originals: Map<string, Pt[]> };
+
+const BOX_KINDS = new Set<AnnotKind>(["rect", "ellipse", "highlight", "underline", "strikeout"]);
+const CLOSED_KINDS = new Set<AnnotKind>(["polygon", "area", "volume", "cloud"]);
+
+const rangeOf = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1);
+
+/** Build the viewer's DOM skeleton. */
+function buildShell(container: HTMLElement): Viewer["el"] {
+  container.innerHTML = "";
+  const root = document.createElement("div");
+  root.className = "mpdf-root";
+  const toolbar = document.createElement("div");
+  toolbar.className = "mpdf-toolbar";
+  const body = document.createElement("div");
+  body.className = "mpdf-body";
+  const left = document.createElement("aside");
+  left.className = "mpdf-side mpdf-side-left";
+  const scroll = document.createElement("div");
+  scroll.className = "mpdf-scroll";
+  const pages = document.createElement("div");
+  pages.className = "mpdf-pages";
+  pages.style.setProperty("--mpdf-page-gap", `${PAGE_GAP}px`);
+  const right = document.createElement("aside");
+  right.className = "mpdf-side mpdf-side-right";
+  const status = document.createElement("div");
+  status.className = "mpdf-status";
+  scroll.appendChild(pages);
+  body.append(left, scroll, right);
+  root.append(toolbar, body, status);
+  container.appendChild(root);
+  return { root, toolbar, body, left, scroll, pages, right, status };
+}

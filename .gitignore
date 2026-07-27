@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-demo/
+coverage/
+*.tsbuildinfo
+.vite/
+.DS_Store
+Thumbs.db
+*.local
+.env
+.env.*
+!.env.example
+
+# Upstream Massing checkout used only as an extraction reference — never committed.
+_src/

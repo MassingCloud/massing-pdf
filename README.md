@@ -59,10 +59,19 @@ npm install
 npm run dev
 ```
 
-Open the demo, hit **Load a sample sheet** — it generates an ARCH D drawing (title block, column
-grid, rooms, graphic scale) at `1/8" = 1'-0"`. Pick that scale preset, measure the overall dimension
-string, and you get `144'-0"` — the dimension printed on the sheet. Markups persist in IndexedDB, so
-they survive a reload with no server involved.
+Open the demo, hit **Load a sample sheet** — it generates a three-page set: an ARCH D drawing at
+`1/8" = 1'-0"` (title block, column grid, rooms, graphic scale), a details sheet, and a real
+CSI-formatted spec section.
+
+Two things worth trying, because they are the checks that the engine is honest rather than
+plausible-looking:
+
+- Pick the `1/8" = 1'-0"` scale preset and measure the overall dimension string. You get `144'-0"` —
+  the dimension printed on the sheet.
+- Open **Specifications** → *Read specification sections*. It finds `07 84 00 FIRESTOPPING`, its 23
+  clauses in full hierarchy, and the submittal/quality/warranty requirements inside them.
+
+Markups persist in IndexedDB, so they survive a reload with no server involved.
 
 ## What's in it
 
@@ -81,6 +90,10 @@ The redline vocabulary a drawing reviewer actually uses, not a generic comment s
 Markups carry a discipline, and the discipline drives the colour — the redline convention, rather
 than a colour picker nobody standardises on.
 
+Highlight, strikeout and underline select **real glyphs**, not a dragged box. A selection spanning
+three lines records three quads and draws three bands — on screen and in the exported PDF — instead
+of one block swallowing the margins. That is also what gives a spec citation something to anchor to.
+
 ### Measurement and takeoff
 
 - **Named scale presets** (`1/4" = 1'-0"`, `1:100`, …) as well as draw-a-line calibration. A
@@ -92,12 +105,41 @@ than a colour picker nobody standardises on.
 - Every quantity keeps its raw page-unit magnitude, so **re-calibrating a page re-derives every
   measurement on it** instead of forcing the estimator to draw them again.
 
-### Revision intelligence
+### Revision intelligence and slip-sheeting
 
 Two issues of a sheet are rasterised at a common resolution, **aligned** (plot origins drift between
 issues, and without correction a naive pixel diff reports the whole drawing as changed), differenced,
 and the changed regions clustered — then turned into real revision clouds in the markup store, with
 authorship and status, not a throwaway picture.
+
+The same alignment drives **markup migration**. When a sheet is re-issued, carrying its markups
+forward blindly is worse than losing them: a comment reading "verify this dimension" sitting over a
+dimension that has since changed is actively misleading. So each markup gets a verdict — unchanged,
+relocated, or *needs a human* — and lands in a review queue with an audit trail, rather than being
+silently reapplied.
+
+### Specifications
+
+A CSI spec book is parsed into addressable sections and clauses, so `07 84 00 §1.2.A` is a **link**
+rather than a string somebody typed. Cite a clause on a markup, browse the clause tree, and pull the
+submittal, quality, warranty and closeout requirements out of Part 1 into a checklist.
+
+Field coordination lives in the specs: a drawing note saying "firestop per spec" is only actionable
+if you can get to the section and read what it actually requires.
+
+### Search
+
+One query across sheet text, markup content and the sheet register, kept distinguishable in the
+results and spatially located on the page. Phrase matching runs over the joined word stream, so a
+phrase split across separate PDF text runs — the normal case — still matches.
+
+### Preservation mode
+
+Provenance (archive, collection, scan resolution, architect) and, more importantly, **uncertainty**.
+A dimension read off a medium-resolution scan of a century-old drawing is not the same claim as one
+read off a CAD export, and a system that records both identically is quietly lying. Confidence tags
+change how a markup *looks* — the less certain, the more broken up the line — alongside contrast and
+invert adjustments for faint dyelines, and a transcription panel for handwriting.
 
 ### Issues and interchange
 
@@ -141,6 +183,11 @@ Viewer (kernel)
 | `pinsPlugin` | issue pins, promote-to-RFI, status board |
 | `markupListPlugin` | the faceted markup list |
 | `comparePlugin` | overlay, auto-align, diff, cloud-the-changes |
+| `migrationPlugin` | slip-sheet: plan, verdict per markup, review queue |
+| `specsPlugin` | CSI parsing, clause tree, citation, requirement extraction |
+| `searchPlugin` | document-wide search over text, markups and sheets |
+| `historicalPlugin` | provenance, confidence, legibility adjustments |
+| `attachmentsPlugin` | photos and files pinned to a markup |
 | `sheetsPlugin` | title-block extraction, sheet register, thumbnails |
 | `persistencePlugin` | adapter wiring, debounced saves, live merge |
 | `exportersPlugin` | PDF / XFDF / BCF / CSV in and out |
@@ -214,7 +261,7 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 ```bash
 npm install
 npm run dev        # demo at :5173
-npm test           # 120 unit tests
+npm test           # 164 unit tests
 npm run check      # typecheck + lint + test
 npm run build      # library → dist/
 npm run demo:build # standalone demo → dist-demo/
@@ -226,10 +273,14 @@ worker, since two versions in one page fail in confusing ways.
 
 ## Status
 
-Working and tested: the markup engine, measurement, the store and undo, interchange, adapters, and
-the plugin kernel. See [docs/roadmap.md](docs/roadmap.md) for what is deliberately not built yet —
-notably the specifications workspace, OCR, and markup migration across a slip-sheet, which are
-designed for in the data model but not implemented.
+Working and tested: the markup engine, measurement, the store and undo, interchange, adapters, the
+plugin kernel, spec parsing, search, glyph-anchored text markup, and slip-sheet migration.
+164 unit tests.
+
+See [docs/roadmap.md](docs/roadmap.md) for what is deliberately not built. Chiefly **OCR**, which
+gates search, spec parsing and title-block extraction on scanned sets — they degrade gracefully, but
+they degrade to empty. Also: automatic spec↔drawing linking (citation is manual), and compare
+handles translation but not rotation or scale.
 
 ## Licence
 

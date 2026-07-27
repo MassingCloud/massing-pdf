@@ -7,6 +7,7 @@
  */
 import { PdfDocument, type PdfSource } from "./document";
 import { PageView } from "./renderer";
+import { TextLayer, clearSelection, type TextSelection } from "./textLayer";
 import { EventBus, type EventName, type Handler, type Unsubscribe } from "./events";
 import { AnnotationStore } from "./store";
 import {
@@ -37,6 +38,8 @@ export interface ViewerOptions {
   feetInches?: boolean;
   /** Map a page to a stable sheet key so markups survive a re-issued container file. */
   sheetIdFor?: (page: number) => string;
+  /** Build a selectable text layer over each page. On by default; scans have no text to select. */
+  textLayer?: boolean;
   /** Plugins to install at construction. More can be added with `use()` before `load()`. */
   plugins?: ViewerPlugin[];
 }
@@ -49,6 +52,8 @@ interface PageLayer {
   overlay: SVGSVGElement;
   /** The group carrying the rotation transform; annotations go inside it. */
   content: SVGGElement;
+  /** Selectable text over the raster. Built lazily, the first time a text tool is armed. */
+  text: TextLayer;
   dirty: boolean;
 }
 
@@ -150,7 +155,7 @@ export class Viewer {
   }
 
   private closeDoc(): void {
-    for (const l of this.layers.values()) { l.view.destroy(); l.wrap.remove(); }
+    for (const l of this.layers.values()) { l.view.destroy(); l.text.destroy(); l.wrap.remove(); }
     this.layers.clear();
     if (this.doc) { this.doc.destroy(); this.doc = null; this.bus.emit("doc:closed", undefined); }
   }
@@ -187,6 +192,7 @@ export class Viewer {
     const t = this.activeTool;
     t?.activate?.(this);
     this.el.pages.style.cursor = t?.cursor ?? (t ? "crosshair" : "default");
+    this.syncTextLayers();
     this.bus.emit("tool:changed", { id: this.activeToolId });
   }
 
@@ -328,8 +334,10 @@ export class Viewer {
     overlay.dataset.page = String(page);
     const content = el("g", { class: "mpdf-overlay-content" });
     overlay.appendChild(content);
-    wrap.append(view.el, overlay);
-    return { page, wrap, view, overlay, content, dirty: true };
+    const text = new TextLayer(this.doc!, page);
+    // Stacking: raster, then text (selectable), then the annotation overlay on top.
+    wrap.append(view.el, text.el, overlay);
+    return { page, wrap, view, overlay, content, text, dirty: true };
   }
 
   /** Push the current zoom/rotation into every page, then repaint what's on screen. */
@@ -350,6 +358,11 @@ export class Viewer {
       const t = rotationTransform(info.width, info.height, this._rotation);
       if (t) layer.content.setAttribute("transform", t);
       else layer.content.removeAttribute("transform");
+      layer.text.setScale(this._zoom);
+      // The text layer is positioned in unrotated page space, so it can only line up with the ink
+      // when the view is unrotated. Hide it rather than offer a selection that lands in the wrong
+      // place — a subtly wrong highlight is worse than no highlight.
+      layer.text.el.style.display = this._rotation === 0 ? "" : "none";
       layer.dirty = true;
     }
     this.updateVisible();
@@ -456,6 +469,33 @@ export class Viewer {
     for (const ev of ["annot:added", "annot:updated", "annot:removed", "annot:reset", "annot:selected", "filter:changed"] as const) {
       this.bus.on(ev, repaint);
     }
+  }
+
+  // ---- text layer ----------------------------------------------------------
+
+  /** The text layer for a page, if one was built. */
+  textLayer(page: number): TextLayer | undefined { return this.layers.get(page)?.text; }
+
+  /**
+   * Arm or disarm text selection to match the active tool. Layers are built lazily here rather than
+   * on load: a 400-page set would otherwise create hundreds of thousands of spans nobody selects.
+   */
+  private syncTextLayers(): void {
+    const on = this.opts.textLayer !== false && this.activeTool?.input === "text-select";
+    for (const layer of this.layers.values()) {
+      if (on) void layer.text.build().then(() => layer.text.setScale(this._zoom));
+      layer.text.setSelectable(on);
+    }
+    if (!on) clearSelection();
+  }
+
+  /** Read the current text selection from whichever page owns it. */
+  private readSelection(): TextSelection | null {
+    for (const layer of this.layers.values()) {
+      const sel = layer.text.currentSelection();
+      if (sel) return sel;
+    }
+    return null;
   }
 
   // ---- hit testing ---------------------------------------------------------
@@ -569,6 +609,9 @@ export class Viewer {
     if (!tool) { this.beginSelect(e, at.page, at.pt); return; }
     if (this.opts.readOnly) return;
 
+    // A text-select tool has no geometry of its own; the browser owns the drag.
+    if (tool.input === "text-select") return;
+
     this.draftPage = at.page;
     switch (tool.input) {
       case "click":
@@ -641,6 +684,12 @@ export class Viewer {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    const tool = this.activeTool;
+    if (tool?.input === "text-select") {
+      // Let the browser finish settling the selection before reading it.
+      setTimeout(() => void this.commitTextSelection(tool, e), 0);
+      return;
+    }
     const g = this.gesture;
     if (!g) return;
     this.gesture = null;
@@ -810,6 +859,43 @@ export class Viewer {
     this.store.select(annot.id);
   }
 
+  /**
+   * Commit a `text-select` tool from the live DOM selection. The markup's `points` are the union
+   * box, so every existing consumer (hit-testing, flatten, XFDF) works unchanged; the per-line quads
+   * ride in `ext.quads` for renderers that want to draw one band per line.
+   */
+  private async commitTextSelection(
+    tool: ToolDef,
+    e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean },
+  ): Promise<void> {
+    const selection = this.readSelection();
+    if (!selection || !selection.text.trim()) return;
+    const b = selection.bounds;
+    const points: Pt[] = [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y + b.h }];
+
+    let draft: AnnotationDraft | null;
+    try {
+      draft = tool.create
+        ? await tool.create({
+            points, page: selection.page, viewer: this, selection,
+            modifiers: { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey },
+          })
+        : { kind: tool.kind, points, page: selection.page };
+    } catch (err) {
+      this.bus.emit("notice", { level: "error", message: `${tool.label} failed: ${(err as Error).message}` });
+      return;
+    }
+    if (!draft) return;
+
+    draft.ext = { ...draft.ext, quads: selection.quads, selectedText: selection.text };
+    if (!draft.text && !draft.subject) draft.subject = truncate(selection.text, 80);
+    const annot = this.store.add({ ...draft, page: draft.page ?? selection.page });
+    clearSelection();
+    if (!tool.sticky) this.setTool(null);
+    this.redraw(annot.page);
+    this.store.select(annot.id);
+  }
+
   /** Programmatic creation — the scripting/test surface, and how a host imports markups. */
   addAnnotation(draft: AnnotationDraft): Annotation {
     if (!draft.quantity) {
@@ -856,6 +942,9 @@ type GestureState =
 
 const BOX_KINDS = new Set<AnnotKind>(["rect", "ellipse", "highlight", "underline", "strikeout"]);
 const CLOSED_KINDS = new Set<AnnotKind>(["polygon", "area", "volume", "cloud"]);
+
+const truncate = (t: string, n: number): string =>
+  t.length > n ? `${t.slice(0, n - 1)}…` : t;
 
 const rangeOf = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1);
 

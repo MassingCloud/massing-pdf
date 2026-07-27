@@ -104,15 +104,29 @@ export function markupPlugin(options: MarkupOptions = {}) {
         },
       });
 
-      // --- text-layer markups ------------------------------------------------
-      t(shape("highlight", "Highlight", "▤", "highlight", "drag", {
-        create: ({ points, page }) => decorate({
+      // --- text-anchored markups --------------------------------------------
+      // These select real glyphs rather than dragging a box, so the markup records *which words*
+      // it covers. That is what lets a highlight span three lines without swallowing the margins,
+      // and what gives a spec citation something to anchor to.
+      t({
+        id: "highlight", label: "Highlight", icon: "▤", kind: "highlight", input: "text-select",
+        group: "markup", shortcut: "h", sticky: true,
+        create: ({ points, page, selection }) => decorate({
           kind: "highlight", points, page,
+          note: selection?.text,
           style: { color: "#ffe14d", fill: "#ffe14d", fillOpacity: 0.35, width: 0 },
         }),
-      }));
-      t(shape("strikeout", "Strikeout", "S̶", "strikeout", "drag"));
-      t(shape("underline", "Underline", "U̲", "underline", "drag"));
+      });
+      t({
+        id: "strikeout", label: "Strikeout", icon: "S̶", kind: "strikeout", input: "text-select",
+        group: "markup", sticky: true,
+        create: ({ points, page, selection }) => decorate({ kind: "strikeout", points, page, note: selection?.text }),
+      });
+      t({
+        id: "underline", label: "Underline", icon: "U̲", kind: "underline", input: "text-select",
+        group: "markup", sticky: true,
+        create: ({ points, page, selection }) => decorate({ kind: "underline", points, page, note: selection?.text }),
+      });
 
       // --- settings actions --------------------------------------------------
       ctx.registerAction({

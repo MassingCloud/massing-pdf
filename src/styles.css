@@ -400,6 +400,171 @@
   text-align: center;
 }
 
+/* ---- text layer --------------------------------------------------------- */
+
+.mpdf-textlayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  transform-origin: 0 0;
+  /* Glyph boxes only — the text is invisible, the selection highlight is not. */
+  opacity: 1;
+  line-height: 1;
+  user-select: text;
+}
+.mpdf-textlayer span { position: absolute; color: transparent; white-space: pre; cursor: text; }
+.mpdf-textlayer ::selection { background: color-mix(in srgb, var(--mpdf-accent) 45%, transparent); }
+.mpdf-textlayer ::-moz-selection { background: rgb(74 140 255 / 45%); }
+
+/* ---- search ------------------------------------------------------------- */
+
+.mpdf-search-results { max-height: 46vh; }
+.mpdf-hit-source {
+  flex: none;
+  align-self: flex-start;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--mpdf-panel-2);
+  color: var(--mpdf-muted);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mpdf-hit-source[data-source="markup"] { color: var(--mpdf-accent); }
+.mpdf-hit-source[data-source="sheet"] { color: var(--mpdf-ok); }
+.mpdf-hit-source[data-source="submittal"] { color: var(--mpdf-accent); }
+.mpdf-hit-source[data-source="quality"] { color: var(--mpdf-warn); }
+.mpdf-hit-source[data-source="warranty"] { color: var(--mpdf-ok); }
+.mpdf-hit-source[data-source="closeout"] { color: #a24bd0; }
+.mpdf-hit-mark { background: color-mix(in srgb, var(--mpdf-warn) 45%, transparent); color: inherit; border-radius: 2px; }
+
+.mpdf-search-flash {
+  border: 2px solid var(--mpdf-warn);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--mpdf-warn) 20%, transparent);
+  animation: mpdf-flash 2.2s ease-out forwards;
+}
+@keyframes mpdf-flash {
+  0%, 60% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mpdf-search-flash { animation: none; }
+}
+
+/* ---- specifications ----------------------------------------------------- */
+
+.mpdf-spec-list { max-height: 52vh; }
+.mpdf-spec-section { border-bottom: 1px solid var(--mpdf-line); }
+.mpdf-spec-heading {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 5px 2px;
+  cursor: pointer;
+  list-style: none;
+}
+.mpdf-spec-heading::-webkit-details-marker { display: none; }
+.mpdf-spec-heading strong { font-variant-numeric: tabular-nums; font-size: 12px; }
+.mpdf-spec-heading span {
+  color: var(--mpdf-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mpdf-spec-heading:hover span { color: var(--mpdf-fg); }
+
+.mpdf-spec-clause {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 2px 3px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.mpdf-spec-clause:hover { background: var(--mpdf-panel-2); }
+.mpdf-spec-clause[data-depth="0"] { font-weight: 700; padding-left: 4px; }
+.mpdf-spec-clause[data-depth="1"] { font-weight: 600; padding-left: 10px; }
+.mpdf-spec-clause[data-depth="2"] { padding-left: 20px; }
+.mpdf-spec-clause[data-depth="3"] { padding-left: 32px; color: var(--mpdf-muted); }
+.mpdf-spec-ref {
+  flex: none;
+  min-width: 34px;
+  color: var(--mpdf-accent);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+}
+.mpdf-spec-clause .mpdf-icon-btn { margin-left: auto; opacity: 0; }
+.mpdf-spec-clause:hover .mpdf-icon-btn { opacity: 1; }
+
+/* ---- provenance --------------------------------------------------------- */
+
+.mpdf-provenance { display: flex; flex-direction: column; gap: 4px; }
+.mpdf-prov-row { display: flex; gap: 8px; align-items: baseline; font-size: 11.5px; }
+.mpdf-prov-key { flex: none; width: 82px; color: var(--mpdf-muted); font-size: 10.5px; }
+.mpdf-prov-val {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mpdf-fg);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mpdf-prov-val:hover { border-color: var(--mpdf-line); background: var(--mpdf-bg); }
+.mpdf-prov-val.is-empty { color: var(--mpdf-muted); }
+
+.mpdf-transcript {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--mpdf-accent);
+  background: var(--mpdf-bg);
+  color: var(--mpdf-fg);
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ---- attachments -------------------------------------------------------- */
+
+.mpdf-attachments { display: flex; flex-direction: column; gap: 8px; }
+.mpdf-dropzone {
+  padding: 14px 10px;
+  border: 1px dashed var(--mpdf-line);
+  border-radius: var(--mpdf-radius);
+  color: var(--mpdf-muted);
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+}
+.mpdf-dropzone:hover, .mpdf-dropzone.is-over { border-color: var(--mpdf-accent); color: var(--mpdf-fg); }
+
+.mpdf-attach-list { display: flex; flex-direction: column; gap: 4px; }
+.mpdf-attach {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 5px;
+  border: 1px solid var(--mpdf-line);
+  border-radius: var(--mpdf-radius);
+  cursor: pointer;
+}
+.mpdf-attach:hover { background: var(--mpdf-panel-2); }
+.mpdf-attach-thumb { flex: none; width: 40px; height: 40px; border-radius: 3px; object-fit: cover; }
+.mpdf-attach-glyph { flex: none; width: 40px; font-size: 20px; text-align: center; }
+
 /* ---- compare ------------------------------------------------------------ */
 
 .mpdf-compare-overlay { mix-blend-mode: multiply; }

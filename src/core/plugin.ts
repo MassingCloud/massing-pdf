@@ -7,6 +7,7 @@
  */
 import type { EventBus } from "./events";
 import type { AnnotationStore } from "./store";
+import type { TextSelection } from "./textLayer";
 import type { Annotation, AnnotationDraft, AnnotKind, Pt } from "./types";
 import type { Viewer } from "./viewer";
 
@@ -19,7 +20,13 @@ export type ToolInput =
   /** Click per vertex, double-click or Enter to finish. Polygons, polylines, clouds, areas. */
   | "poly"
   /** Pointer path sampled while held. Ink. */
-  | "freehand";
+  | "freehand"
+  /**
+   * No geometry of its own — the markup is anchored to selected *text*. The kernel makes the text
+   * layer selectable while such a tool is active and hands `create` the resulting quads. Highlight,
+   * strikeout, underline, and anything that cites a spec clause.
+   */
+  | "text-select";
 
 /** What a tool is handed when its gesture completes. */
 export interface ToolCommit {
@@ -29,6 +36,8 @@ export interface ToolCommit {
   viewer: Viewer;
   /** Modifier state at the moment the gesture finished. */
   modifiers: { shift: boolean; alt: boolean; ctrl: boolean; meta: boolean };
+  /** The text selection, for `text-select` tools. Absent for every other input mode. */
+  selection?: TextSelection;
 }
 
 /** A drawing tool. Registering one is how a plugin adds a markup type. */

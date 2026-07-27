@@ -29,13 +29,15 @@ framework here would force one on every consumer.
 
 ## Layout
 ```
-src/core/      viewer (kernel) · document · renderer · store · events · plugin · coords · geometry · units · filter · types
+src/core/      viewer (kernel) · document · renderer · textLayer · store · events · plugin
+               coords · geometry · units · filter · types
 src/render/    svg.ts — Annotation → SVG, page space
-src/plugins/   markup · measure · stamps · pins · markupList · compare · sheets · toolbar · persistence · exporters
+src/plugins/   markup · measure · stamps · pins · markupList · search · specs · compare
+               migration · sheets · historical · attachments · toolbar · persistence · exporters
 src/adapters/  memory · indexeddb · rest · offline
 src/io/        xfdf · bcf · csv · flatten
-demo/          standalone app; generates its own sample sheet with pdf-lib
-test/          120 unit tests
+demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
+test/          164 unit tests
 ```
 
 ## Commands
@@ -60,7 +62,12 @@ npm run demo:build standalone demo → dist-demo/
 - **Editing source while the demo is open triggers Vite HMR**, which resets viewer state mid-test.
   Reload before browser-driven verification, and don't edit files during a run.
 - **The browser pane must be visible for rasterisation to work.** Hidden ⇒ no `requestAnimationFrame`
-  ⇒ pdf.js renders never settle. Everything else (markup, measurement, export) is testable headless.
+  ⇒ pdf.js renders never settle. Everything else (markup, measurement, text selection, spec parsing,
+  search, export) is testable in a hidden pane, because none of it needs pixels.
+- **Spec-language regexes must match stems, not whole words.** `\bqualif\b` matches nothing;
+  "Qualifications" needs `\bqualif\w*`. This silently empties the requirements checklist.
+- **A point markup has zero area.** Any code computing an overlap *ratio* against one divides by
+  zero-ish and waves it through — check containment instead (see `changeOverlap` in migration).
 
 ## Local environment notes (this machine)
 - Repo root: `C:\Server\massingpdf` (Windows / PowerShell).

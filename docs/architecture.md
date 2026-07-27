@@ -89,6 +89,25 @@ Awaiting it would mean `viewer.load()` hangs until a backgrounded tab is foregro
 presents to the host as a load that never resolves. (This was a real bug, caught by driving the
 demo in a hidden browser pane.)
 
+## The text layer
+
+Absolutely-positioned transparent spans over the raster, one per pdf.js text item, letting the
+browser handle selection natively — the same approach pdf.js's own viewer takes. A DOM `Range` is
+then mapped back to page-space quads.
+
+The alternative, dragging a box around a paragraph, is a lie: the markup records where the box was,
+not which words it covered, so it cannot survive a re-flow, cannot be searched, and cannot anchor a
+spec clause reference.
+
+Three details that matter:
+
+- Spans are positioned in **page units** and the container carries a `scale()` transform, so a zoom
+  change is one style write rather than a rebuild of several thousand elements.
+- Layers are built **lazily**, when a text tool is first armed. Building them for a 400-page set on
+  load would create hundreds of thousands of spans nobody selects.
+- `pointer-events` is off unless a `text-select` tool is active, so the layer never swallows a click
+  meant for a markup.
+
 ## The store
 
 Every mutation goes through `AnnotationStore` so that:

@@ -77,11 +77,18 @@ export function drawAnnotation(a: Annotation, o: DrawOpts): SVGGElement {
   const px = (n: number) => n / o.zoom;
 
   switch (a.kind) {
-    case "rect":
-    case "highlight": {
+    case "rect": {
       if (pts.length < 2) break;
       const b = bbox([pts[0]!, pts[1]!]);
       g.append(el("rect", { x: b.x, y: b.y, width: b.w, height: b.h, ...filled, ...dash }));
+      break;
+    }
+    case "highlight": {
+      // A text-anchored highlight carries one quad per line, so a selection spanning three lines
+      // draws three bands rather than one block swallowing the margins.
+      for (const q of textQuads(a) ?? boxQuad(pts)) {
+        g.append(el("rect", { x: q.x, y: q.y, width: q.w, height: q.h, ...filled, stroke: "none" }));
+      }
       break;
     }
     case "ellipse": {
@@ -143,10 +150,11 @@ export function drawAnnotation(a: Annotation, o: DrawOpts): SVGGElement {
     }
     case "underline":
     case "strikeout": {
-      if (pts.length < 2) break;
-      const b = bbox([pts[0]!, pts[1]!]);
-      const y = a.kind === "underline" ? b.y + b.h : b.y + b.h / 2;
-      g.append(el("line", { x1: b.x, y1: y, x2: b.x + b.w, y2: y, ...stroke }));
+      for (const q of textQuads(a) ?? boxQuad(pts)) {
+        // Underline sits just below the baseline box; strikeout crosses the x-height.
+        const y = a.kind === "underline" ? q.y + q.h * 0.94 : q.y + q.h * 0.55;
+        g.append(el("line", { x1: q.x, y1: y, x2: q.x + q.w, y2: y, ...stroke }));
+      }
       break;
     }
     case "text": {
@@ -319,6 +327,18 @@ function appendSelection(g: SVGGElement, a: Annotation, o: DrawOpts): void {
 }
 
 const HANDLE_AS_BOX = new Set(["rect", "ellipse", "highlight", "underline", "strikeout"]);
+
+/** Per-line quads recorded by a text-select tool, if this markup came from a text selection. */
+function textQuads(a: Annotation): { x: number; y: number; w: number; h: number }[] | null {
+  const q = a.ext?.["quads"];
+  return Array.isArray(q) && q.length ? (q as { x: number; y: number; w: number; h: number }[]) : null;
+}
+
+/** Fallback for a markup dragged as a box rather than selected as text. */
+function boxQuad(pts: readonly Pt[]): { x: number; y: number; w: number; h: number }[] {
+  if (pts.length < 2) return [];
+  return [bbox([pts[0]!, pts[1]!])];
+}
 
 function midpoint(pts: readonly Pt[]): Pt {
   if (!pts.length) return { x: 0, y: 0 };

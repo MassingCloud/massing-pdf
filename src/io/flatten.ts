@@ -94,18 +94,31 @@ export async function flattenToPdf(doc: PdfDocument, options: FlattenOptions = {
     };
 
     switch (a.kind) {
-      case "rect": case "highlight": case "underline": case "strikeout": {
+      case "rect": {
         if (pts.length < 2) break;
         const b = bbox(pts);
-        if (a.kind === "underline" || a.kind === "strikeout") {
-          const y = a.kind === "underline" ? b.y : b.y + b.h / 2;
-          pg.drawLine({ start: { x: b.x, y }, end: { x: b.x + b.w, y }, ...stroke });
-        } else {
-          pg.drawRectangle({
-            x: b.x, y: b.y, width: b.w, height: b.h,
-            borderColor: color, borderWidth: a.kind === "highlight" ? 0 : width,
-            color: fill, opacity: st.fillOpacity, borderOpacity: st.opacity,
-          });
+        pg.drawRectangle({
+          x: b.x, y: b.y, width: b.w, height: b.h,
+          borderColor: color, borderWidth: width,
+          color: fill, opacity: st.fillOpacity, borderOpacity: st.opacity,
+        });
+        break;
+      }
+      case "highlight": case "underline": case "strikeout": {
+        // Text-anchored markups carry one quad per selected line. Burning the union box instead
+        // would put a three-line highlight's block over the margins — on screen it draws three
+        // bands, and the exported PDF has to agree with what the reviewer saw.
+        for (const q of textQuadsInPdfSpace(a, P) ?? boxQuads(pts)) {
+          if (a.kind === "highlight") {
+            pg.drawRectangle({
+              x: q.x, y: q.y, width: q.w, height: q.h,
+              color: fill, opacity: st.fillOpacity, borderWidth: 0,
+            });
+          } else {
+            // pdf space is y-up, so "under" the text is the low edge of the quad.
+            const y = a.kind === "underline" ? q.y + q.h * 0.06 : q.y + q.h * 0.45;
+            pg.drawLine({ start: { x: q.x, y }, end: { x: q.x + q.w, y }, ...stroke });
+          }
         }
         break;
       }
@@ -205,6 +218,31 @@ export async function flattenToPdf(doc: PdfDocument, options: FlattenOptions = {
     await addSummary(out, annots, { font, bold, rgb }, options);
   }
   return out.save();
+}
+
+/**
+ * Per-line quads from a text selection, converted to PDF user space. Each quad is page-space
+ * top-left, so both its corners go through the same viewport transform as any other geometry.
+ */
+function textQuadsInPdfSpace(
+  a: Annotation,
+  P: (p: Pt) => { x: number; y: number },
+): { x: number; y: number; w: number; h: number }[] | null {
+  const raw = a.ext?.["quads"];
+  if (!Array.isArray(raw) || !raw.length) return null;
+  return (raw as { x: number; y: number; w: number; h: number }[]).map((q) => {
+    const a1 = P({ x: q.x, y: q.y });
+    const a2 = P({ x: q.x + q.w, y: q.y + q.h });
+    return {
+      x: Math.min(a1.x, a2.x), y: Math.min(a1.y, a2.y),
+      w: Math.abs(a2.x - a1.x), h: Math.abs(a2.y - a1.y),
+    };
+  });
+}
+
+/** Fallback for a markup dragged as a box rather than selected as text. */
+function boxQuads(pts: { x: number; y: number }[]): { x: number; y: number; w: number; h: number }[] {
+  return pts.length >= 2 ? [bbox(pts)] : [];
 }
 
 /** Where a measurement's value goes: inside a closed shape, at the midpoint of an open one. */

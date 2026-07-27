@@ -29,6 +29,10 @@ import "./styles.css";
 export { Viewer, type ViewerOptions } from "./core/viewer";
 export { PdfDocument, configureWorker, workerConfigured, type PdfSource, type PageInfo, type TextItem, type OutlineItem } from "./core/document";
 export { PageView, tileBoxes, type Rect } from "./core/renderer";
+export {
+  TextLayer, splitWords, mergeByLine, unionBox, clearSelection, quadContains,
+  type TextSelection, type TextQuad, type Word,
+} from "./core/textLayer";
 export { AnnotationStore, makeId, type StoreOpts } from "./core/store";
 export { EventBus, type ViewerEvents, type EventName, type Handler, type Unsubscribe } from "./core/events";
 export { matchesFilter, isEmptyFilter, facets } from "./core/filter";
@@ -74,6 +78,20 @@ export {
 export { pinsPlugin, DEFAULT_ISSUE_TYPES, type PinOptions, type IssueFields } from "./plugins/pins";
 export { markupListPlugin, type MarkupListOptions } from "./plugins/markupList";
 export { comparePlugin, comparePages, type CompareOptions, type CompareResult, type DiffRegion } from "./plugins/compare";
+export {
+  migrationPlugin, planMigration,
+  type MigrationOptions, type MigrationProposal, type MigrationVerdict,
+} from "./plugins/migration";
+export { searchPlugin, findInWords, type SearchOptions, type SearchHit, type HitSource } from "./plugins/search";
+export {
+  specsPlugin, parseSpecs, parseSpecLines, extractRequirements,
+  type SpecsOptions, type SpecSection, type SpecClause, type SpecLine, type SpecRequirement,
+} from "./plugins/specs";
+export {
+  historicalPlugin, CONFIDENCE_LEVELS,
+  type HistoricalOptions, type Confidence, type ImageAdjustments,
+} from "./plugins/historical";
+export { attachmentsPlugin, type AttachmentOptions } from "./plugins/attachments";
 export { sheetsPlugin, extractSheetMeta, type SheetsOptions } from "./plugins/sheets";
 export { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 export { persistencePlugin, type PersistenceOptions } from "./plugins/persistence";

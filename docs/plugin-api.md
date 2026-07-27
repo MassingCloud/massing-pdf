@@ -45,8 +45,26 @@ ctx.registerTool({
 | `drag` | press, drag, release | two points — rects, lines, single measurements |
 | `poly` | click per vertex; double-click or `Enter` to finish | n points — polygons, clouds, areas |
 | `freehand` | pointer path while held | a simplified path — ink |
+| `text-select` | select text with the mouse | quads over the selected glyphs |
 
 Shift during a `drag` or `poly` snaps to 15°.
+
+A `text-select` tool has no geometry of its own. While one is active the kernel makes the text layer
+selectable and lets the browser own the drag; on release it hands `create` a `selection` with the
+selected text and one quad per line. `points` is the union box, so hit-testing, flatten and XFDF all
+work unchanged, and the per-line quads ride in `ext.quads` for renderers that draw a band per line.
+
+```ts
+ctx.registerTool({
+  id: "highlight", label: "Highlight", icon: "▤", kind: "highlight",
+  input: "text-select", group: "markup", sticky: true,
+  create: ({ points, page, selection }) => ({
+    kind: "highlight", points, page,
+    note: selection?.text,
+    style: { color: "#ffe14d", fill: "#ffe14d", fillOpacity: 0.35, width: 0 },
+  }),
+});
+```
 
 ### Other fields
 

@@ -190,6 +190,19 @@ should win, since a project that already knows its drawing list should not have 
 Discipline is inferred from the sheet-number prefix (US National CAD Standard: A architectural,
 S structural, M mechanical, …); `kind` from words in the title.
 
+## Text-anchored markups
+
+Highlight, strikeout and underline are created from a real glyph selection rather than a dragged
+box. They store:
+
+- `points` — the union box of the selection, so hit-testing, flatten and XFDF need no special case.
+- `ext.quads` — one page-space quad per selected **line**, which is what the renderer and the
+  flattener actually draw. A three-line selection is three bands, not one block over the margins.
+- `ext.selectedText` — the glyphs covered, so the markup can say what it marks up.
+
+This is the difference between a markup that records *where a box was* and one that records *which
+words it covers*. Only the second can anchor a spec citation or survive being re-read later.
+
 ## Filtering
 
 ```ts

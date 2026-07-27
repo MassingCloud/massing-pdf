@@ -13,6 +13,11 @@ import { stampsPlugin, type StampOptions } from "./plugins/stamps";
 import { pinsPlugin, type PinOptions } from "./plugins/pins";
 import { markupListPlugin, type MarkupListOptions } from "./plugins/markupList";
 import { comparePlugin, type CompareOptions } from "./plugins/compare";
+import { migrationPlugin, type MigrationOptions } from "./plugins/migration";
+import { searchPlugin, type SearchOptions } from "./plugins/search";
+import { specsPlugin, type SpecsOptions } from "./plugins/specs";
+import { historicalPlugin, type HistoricalOptions } from "./plugins/historical";
+import { attachmentsPlugin, type AttachmentOptions } from "./plugins/attachments";
 import { sheetsPlugin, type SheetsOptions } from "./plugins/sheets";
 import { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 import { exportersPlugin, type ExportOptions } from "./plugins/exporters";
@@ -29,7 +34,19 @@ export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
   pins?: PinOptions | false;
   list?: MarkupListOptions | false;
   compare?: CompareOptions | false;
+  /** Slip-sheet migration. Depends on compare's alignment; enabled by default. */
+  migration?: MigrationOptions | false;
+  search?: SearchOptions | false;
   sheets?: SheetsOptions | false;
+  /**
+   * The specifications workspace. Enabled, but parsing is on demand — a 900-page spec book is not
+   * something to index before anyone asks for it.
+   */
+  specs?: SpecsOptions | false;
+  /** Preservation mode: provenance, uncertainty, legibility adjustments. Off unless configured. */
+  historical?: HistoricalOptions | false;
+  /** Photo/file attachments on markups. Off unless configured. */
+  attachments?: AttachmentOptions | false;
   toolbar?: ToolbarOptions | false;
   exporters?: ExportOptions | false;
   /** Persistence is opt-in — omit it and markups live only in memory. */
@@ -41,8 +58,8 @@ export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
 /** Build a viewer with the standard plugin set. */
 export async function createViewer(options: CreateViewerOptions): Promise<Viewer> {
   const {
-    workerUrl, markup, measure, stamps, pins, list, compare, sheets, toolbar, exporters,
-    persistence, plugins = [], ...viewerOptions
+    workerUrl, markup, measure, stamps, pins, list, compare, migration, search, sheets, specs,
+    historical, attachments, toolbar, exporters, persistence, plugins = [], ...viewerOptions
   } = options;
 
   if (workerUrl) configureWorker(workerUrl);
@@ -61,7 +78,13 @@ export async function createViewer(options: CreateViewerOptions): Promise<Viewer
     stamps === false ? null : stampsPlugin(stamps ?? {}),
     pins === false ? null : pinsPlugin(pins ?? {}),
     list === false ? null : markupListPlugin(list ?? {}),
+    search === false ? null : searchPlugin(search ?? {}),
+    specs === false ? null : specsPlugin(specs ?? {}),
     compare === false ? null : comparePlugin(compare ?? {}),
+    migration === false ? null : migrationPlugin(migration ?? {}),
+    // Opt-in: these add panels most projects don't want on screen by default.
+    historical ? historicalPlugin(historical) : null,
+    attachments ? attachmentsPlugin(attachments) : null,
     exporters === false ? null : exportersPlugin(exporters ?? {}),
     persistence ? persistencePlugin(persistence) : null,
     ...plugins,

@@ -25,7 +25,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  // Rasterising D-size sheets is CPU-heavy: several workers each driving pdf.js over a 36×24"
+  // drawing will starve each other and time out on machines that would otherwise be fine. Capped
+  // rather than left to default to one-per-core.
+  workers: process.env.CI ? 2 : 4,
   reporter: process.env.CI ? [["github"], ["list"]] : [["list"]],
 
   use: {
@@ -37,10 +40,24 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      testIgnore: "**/touch.spec.ts",
       use: {
         ...devices["Desktop Chrome"],
         // Big enough that a D sheet at fit-width still has room for both side panels.
         viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // Touch needs its own profile: the page must actually report touch support, or pointer
+      // events arrive as mouse and `touch-action` stops mattering. Kept separate so the desktop
+      // suite stays honestly desktop.
+      name: "chromium-touch",
+      testMatch: "**/touch.spec.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1600, height: 1000 },
+        hasTouch: true,
+        isMobile: false,
       },
     },
   ],

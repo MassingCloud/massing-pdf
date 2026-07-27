@@ -98,6 +98,18 @@ export class Viewer {
   private gesture: GestureState | null = null;
   private destroyed = false;
   private scrollRaf = 0;
+  /** Live touch points, for pinch and two-finger pan. Keyed by pointerId. */
+  private touches = new Map<number, { x: number; y: number }>();
+  private pinch: {
+    distance: number;
+    zoom: number;
+    page: number;
+    /** The page-space point that was under the fingers when the pinch began. */
+    anchor: Pt | null;
+  } | null = null;
+  /** A pinch update is in flight; a move arriving now re-runs once it lands. */
+  private pinchBusy = false;
+  private pinchPending = false;
   /** OCR output per page, for scans whose PDF carries no text layer. */
   private recognised = new Map<number, TextItem[]>();
 
@@ -195,6 +207,7 @@ export class Viewer {
     const t = this.activeTool;
     t?.activate?.(this);
     this.el.pages.style.cursor = t?.cursor ?? (t ? "crosshair" : "default");
+    this.applyTouchAction();
     this.syncTextLayers();
     this.bus.emit("tool:changed", { id: this.activeToolId });
   }
@@ -600,6 +613,9 @@ export class Viewer {
     const onDown = (e: PointerEvent) => this.onPointerDown(e);
     const onMove = (e: PointerEvent) => this.onPointerMove(e);
     const onUp = (e: PointerEvent) => this.onPointerUp(e);
+    // A browser that claims a gesture mid-way (a scroll taking over, a system edge swipe) sends
+    // pointercancel and never a pointerup. Without this the viewer is left mid-drag forever.
+    const onCancel = (e: PointerEvent) => this.onPointerCancel(e);
     const onDbl = (e: MouseEvent) => this.onDoubleClick(e);
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -615,11 +631,13 @@ export class Viewer {
     pages.addEventListener("pointerdown", onDown);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
     pages.addEventListener("dblclick", onDbl);
     scroll.addEventListener("wheel", onWheel, { passive: false });
     scroll.addEventListener("scroll", onScroll, { passive: true });
     this.el.root.addEventListener("keydown", onKey);
     this.el.root.tabIndex = 0;
+    this.applyTouchAction();
 
     const ro = typeof ResizeObserver !== "undefined"
       ? new ResizeObserver(() => this.updateVisible())
@@ -630,6 +648,7 @@ export class Viewer {
       pages.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       pages.removeEventListener("dblclick", onDbl);
       scroll.removeEventListener("wheel", onWheel);
       scroll.removeEventListener("scroll", onScroll);
@@ -637,6 +656,107 @@ export class Viewer {
       ro?.disconnect();
       if (this.scrollRaf) cancelAnimationFrame(this.scrollRaf);
     });
+  }
+
+  // ---- touch ---------------------------------------------------------------
+
+  /**
+   * Who owns a one-finger drag: the browser (scrolling) or the viewer (drawing).
+   *
+   * With a tool armed, a touch-drag has to reach the gesture loop, which means taking the gesture
+   * away from the browser's scroller — otherwise the sheet pans and nothing is drawn. In select
+   * mode the opposite is true: one finger should scroll, as it does everywhere else.
+   *
+   * `pinch-zoom` stays out of both, because the viewer implements zoom itself; letting the browser
+   * also zoom would double-apply it against a canvas that is already re-rasterising.
+   */
+  private applyTouchAction(): void {
+    this.el.pages.style.touchAction = this.activeTool ? "none" : "pan-x pan-y";
+  }
+
+  private touchMidpoint(): { x: number; y: number } {
+    const pts = [...this.touches.values()];
+    const n = pts.length || 1;
+    return {
+      x: pts.reduce((s, p) => s + p.x, 0) / n,
+      y: pts.reduce((s, p) => s + p.y, 0) / n,
+    };
+  }
+
+  private touchSpread(): number {
+    const [a, b] = [...this.touches.values()];
+    return a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
+  }
+
+  /** Begin a pinch once a second finger lands, abandoning any single-finger gesture in progress. */
+  private beginPinch(): void {
+    const distance = this.touchSpread();
+    if (distance < 1) return;
+    this.cancelDraft();
+    this.gesture = null;
+    const mid = this.touchMidpoint();
+    this.pinch = {
+      distance,
+      zoom: this._zoom,
+      page: this._page,
+      anchor: this.clientToPage(mid.x, mid.y, this._page),
+    };
+  }
+
+  /**
+   * Track a pinch: scale from the ratio of finger spread, and pan by however far the midpoint
+   * moved, so a two-finger gesture zooms and repositions in one motion the way every map does.
+   *
+   * Serialised, because `setZoom` is async. Fingers emit moves far faster than a re-raster
+   * completes, and overlapping calls each read a scroll position the previous one has not yet
+   * corrected — which shows up as the sheet crawling away from under the fingers. Only one update
+   * runs at a time; a move arriving during it sets a flag so the newest finger positions are
+   * applied as soon as it lands, rather than being dropped.
+   */
+  private updatePinch(): void {
+    if (this.pinchBusy) { this.pinchPending = true; return; }
+    const p = this.pinch;
+    if (!p || this.touches.size < 2) return;
+    const spread = this.touchSpread();
+    if (spread < 1) return;
+
+    const target = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, p.zoom * (spread / p.distance)));
+    this.pinchBusy = true;
+    void this.setZoom(target)
+      .then(() => {
+        // Put the page point that was under the fingers back under them, solved against the pinch
+        // *start* rather than nudged each frame. Incremental corrections compound: coalesced moves
+        // mean the intermediate states a per-frame delta assumes never actually happened, and the
+        // sheet creeps out from under the fingers over a long pinch.
+        const info = this.doc?.pageInfoSync(p.page);
+        const layer = this.layers.get(p.page);
+        if (!info || !layer || !p.anchor) return;
+        const mid = this.touchMidpoint();
+        const s = this.el.scroll;
+        const rect = s.getBoundingClientRect();
+        const local = this.pageToLocal(p.anchor, info.width, info.height);
+        s.scrollLeft = layer.wrap.offsetLeft + local.x - (mid.x - rect.left);
+        s.scrollTop = layer.wrap.offsetTop + local.y - (mid.y - rect.top);
+      })
+      .finally(() => {
+        this.pinchBusy = false;
+        if (this.pinchPending) { this.pinchPending = false; this.updatePinch(); }
+      });
+  }
+
+  private endPinch(): void {
+    if (this.touches.size >= 2) return;
+    this.pinch = null;
+    this.pinchPending = false;
+  }
+
+  private onPointerCancel(e: PointerEvent): void {
+    this.touches.delete(e.pointerId);
+    this.endPinch();
+    if (this.gesture?.pointerId === e.pointerId) {
+      this.gesture = null;
+      this.cancelDraft();
+    }
   }
 
   /** Locate the page under an event and convert to page space. */
@@ -652,6 +772,14 @@ export class Viewer {
 
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return;
+
+    if (e.pointerType === "touch") {
+      this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // Two fingers is always a pinch, whatever tool is armed — it is how you reposition mid-markup
+      // without putting the tool down.
+      if (this.touches.size >= 2) { this.beginPinch(); return; }
+    }
+
     this.el.root.focus({ preventScroll: true });
     const at = this.locate(e);
     if (!at) return;
@@ -692,6 +820,11 @@ export class Viewer {
   }
 
   private onPointerMove(e: PointerEvent): void {
+    if (e.pointerType === "touch" && this.touches.has(e.pointerId)) {
+      this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pinch) { this.updatePinch(); return; }
+    }
+
     const g = this.gesture;
     if (!g) {
       // Live rubber-band for poly tools: the segment from the last vertex to the cursor.
@@ -735,6 +868,14 @@ export class Viewer {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    if (e.pointerType === "touch") {
+      this.touches.delete(e.pointerId);
+      const wasPinching = Boolean(this.pinch);
+      this.endPinch();
+      // Lifting one finger of a pinch must not commit whatever the other finger is over.
+      if (wasPinching) return;
+    }
+
     const tool = this.activeTool;
     if (tool?.input === "text-select") {
       // Let the browser finish settling the selection before reading it.

@@ -122,7 +122,10 @@
   flex: 1;
   overflow: auto;
   background: var(--mpdf-canvas);
-  /* Pinch-zoom is handled by the viewer, and the browser's own would fight it. */
+  /* The viewer implements pinch itself (see `updatePinch`), so the browser's own must stay out of
+     it — two zooms applied to a canvas that is already re-rasterising fight each other. One-finger
+     behaviour is set on `.mpdf-pages` at runtime: it scrolls in select mode and draws when a tool
+     is armed. */
   touch-action: pan-x pan-y;
   overscroll-behavior: contain;
 }

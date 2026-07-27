@@ -7,7 +7,7 @@ between what the spec asks for and what exists, rather than to imply the spec is
 
 | Spec area | State |
 |---|---|
-| §3 Navigation and viewing | Continuous scroll, tiled zoom, rotation, fit modes, thumbnails, sheet index, saved views, split pane. **No** multi-tab review sessions. |
+| §3 Navigation and viewing | Continuous scroll, tiled zoom, rotation, fit modes, thumbnails, sheet index, saved views, split pane, pinch-zoom and touch drawing. **No** multi-tab review sessions. |
 | §4 Markup system | 22 kinds including revision clouds, stamps, measurements, glyph-anchored text markup, photo/file attachments, and voice notes. |
 | §5 Structured markup data | Complete — every field in the spec's list, plus provenance. |
 | §6 Revision survival | Overlay compare, alignment (translation and uniform scale), diff clustering, auto-clouding, slip-sheet migration with a review queue and audit trail. |
@@ -99,7 +99,7 @@ reference matching, text splitting, search matching, migration planning, OCR coo
 and the ZIP writer — the last verified by reading its own central directory back rather than by
 trusting the bytes.
 
-**49 browser tests** (`npm run test:e2e`, Playwright + Chromium) cover what unit tests structurally
+**58 browser tests** (`npm run test:e2e`, Playwright + Chromium) cover what unit tests structurally
 cannot. `happy-dom` has no layout, and pdf.js schedules its render continuation on
 `requestAnimationFrame`, which never fires without a compositor — so in a headless DOM every render
 simply hangs. These assert on real pixels and real pointer events:
@@ -110,6 +110,7 @@ simply hangs. These assert on real pixels and real pointer events:
 | `gestures.spec.ts` | drag / poly / freehand / click tools, selection, move, vertex editing, undo coarseness, shortcuts, measurement, text selection |
 | `compare.spec.ts` | rasterise → align → difference → cluster → cloud, and migration planning over a real diff |
 | `persistence.spec.ts` | IndexedDB round-trip and isolation, survival across a reload, and the offline queue holding a markup through a network failure and draining on retry |
+| `touch.spec.ts` | pinch-zoom and its clamps, anchor stability, two-finger pan not drawing, one-finger drawing, and a gesture the browser cancels mid-way |
 
 The fixture is the demo's generated sample, which makes assertions checkable against the drawing
 rather than against the implementation: the plan is drawn at `1/8" = 1'-0"` with a `144'-0"` overall
@@ -124,7 +125,7 @@ Node 20.6+, and 22 avoids the edge entirely.
 - **OCR rasterisation end to end.** The coordinate mapping and the kernel fallback are tested; the
   rasterise-and-recognise round trip needs a provider, and bundling one purely for tests would
   contradict the reason it is an interface.
-- **Touch and pen input.** The gesture tests drive a mouse. Field use is largely touch, and pointer
-  events differ enough there to be worth its own pass.
+- **Pen and stylus.** Touch is covered; `pointerType: "pen"` currently behaves as a mouse, which is
+  right for drawing but ignores pressure and tilt, and offers no palm rejection.
 - **Cross-browser.** Chromium only. Firefox and WebKit differ in canvas limits and in text-layer
   selection behaviour, both of which this engine leans on.

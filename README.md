@@ -131,6 +131,13 @@ Callouts are detected too: a keyed note reading "FIRESTOP PER SPEC 07 84 00" is 
 parsed sections, so the panel shows which sheets reference a section, and a markup dropped beside
 that note can cite it without anyone typing a section number.
 
+### Touch
+
+Pinch to zoom, two fingers to reposition mid-markup, one finger to draw when a tool is armed and to
+scroll when one isn't. The browser competes for these gestures, so ownership is switched explicitly
+rather than left to `touch-action` defaults — and a gesture the browser claims mid-way arrives as
+`pointercancel` with no `pointerup`, which is handled rather than leaving the viewer mid-drag.
+
 ### Search
 
 One query across sheet text, markup content and the sheet register, kept distinguishable in the
@@ -293,7 +300,7 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 npm install
 npm run dev        # demo at :5173
 npm test           # 193 unit tests
-npm run test:e2e   # 49 browser tests (Playwright + Chromium)
+npm run test:e2e   # 58 browser tests (Playwright + Chromium)
 npm run check      # typecheck + lint + unit tests
 npm run check:all  # the above, plus the browser suite
 npm run build      # library → dist/
@@ -307,9 +314,9 @@ worker, since two versions in one page fail in confusing ways.
 ## Status
 
 Every functional area of the product spec is implemented, and both halves of the test pyramid are in
-place: **193 unit tests** for the pure logic, and **49 Playwright tests** for everything that needs a
-real browser — rasterisation, the pointer gesture loop, the compare pipeline, and the IndexedDB
-adapters, none of which a headless DOM can reach.
+place: **193 unit tests** for the pure logic, and **58 Playwright tests** for everything that needs a
+real browser — rasterisation, the pointer gesture loop, touch and pinch, the compare pipeline, and
+the IndexedDB adapters, none of which a headless DOM can reach.
 
 The fixture makes the assertions checkable against the drawing rather than the implementation: the
 sample plan is drawn at `1/8" = 1'-0"` with a `144'-0"` dimension printed on it, so the measurement

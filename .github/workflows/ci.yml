@@ -19,7 +19,7 @@ jobs:
         # 20 is what Massing itself requires; 22 catches anything that breaks on newer runtimes.
         node: [20, 22]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -66,7 +66,7 @@ jobs:
     name: browser tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 

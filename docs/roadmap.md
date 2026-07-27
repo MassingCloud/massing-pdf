@@ -35,6 +35,11 @@ host); `restOcrProvider()` covers a service. A custom provider is four lines.
 The seam is `viewer.pageText(page)`, which returns the PDF's own text layer or recognised text when
 there isn't one. Every text consumer goes through it, which is why OCR lights all three up at once.
 
+Sheets are tiled before recognition. This is not an optimisation: recognition needs ~18–20 pixels of
+character height, 1/8" lettering rasterised as a whole ARCH D sheet gets 9, and the 300 DPI that
+gets it to 37 makes a 78 MP image that exceeds mobile canvas limits and every cloud per-image cap.
+See [ocr.md](ocr.md) for engine selection — drawings and specs want different ones.
+
 ### Compare searches translation and scale, not rotation
 
 Plot origins drift between issues, and a sheet is sometimes re-plotted to another paper size — both
@@ -93,11 +98,11 @@ the viewer is already instantiable more than once on a page.
 
 Two suites, split by what each can actually reach.
 
-**193 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
+**206 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
 formatting, store mutation/undo/merge semantics, every interchange round trip, spec parsing and
 reference matching, text splitting, search matching, migration planning, OCR coordinate mapping,
-and the ZIP writer — the last verified by reading its own central directory back rather than by
-trusting the bytes.
+OCR tile planning and overlap de-duplication, and the ZIP writer — the last verified by reading
+its own central directory back rather than by trusting the bytes.
 
 **58 browser tests** (`npm run test:e2e`, Playwright + Chromium) cover what unit tests structurally
 cannot. `happy-dom` has no layout, and pdf.js schedules its render continuation on

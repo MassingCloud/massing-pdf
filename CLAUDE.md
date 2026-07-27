@@ -38,7 +38,7 @@ src/plugins/   markup · measure · stamps · pins · markupList · search · sp
 src/adapters/  memory · indexeddb · rest · offline
 src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
-test/          193 unit tests (vitest)
+test/          206 unit tests (vitest)
 e2e/           58 browser tests (playwright) — rendering, gestures, touch, compare, adapters
 ```
 

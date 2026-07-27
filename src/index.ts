@@ -98,8 +98,9 @@ export {
   attachmentsPlugin, recordVoiceNote, voiceSupported, type AttachmentOptions,
 } from "./plugins/attachments";
 export {
-  ocrPlugin, tesseractProvider, restOcrProvider, toTextItems,
+  ocrPlugin, tesseractProvider, restOcrProvider, toTextItems, planTileGrid, dedupeWords,
   type OcrOptions, type OcrProvider, type OcrInput, type OcrResult, type OcrWord,
+  type TilePlanOptions,
 } from "./plugins/ocr";
 export { sheetsPlugin, extractSheetMeta, type SheetsOptions } from "./plugins/sheets";
 export { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";

@@ -168,6 +168,14 @@ Everything reads text through one kernel seam — `viewer.pageText(page)`, which
 layer or recognised text when there isn't one — which is why one provider lights up search, specs and
 the sheet register at once.
 
+Sheets are **tiled** before recognition, because resolution dominates the outcome: OCR needs ~18–20
+pixels of character height, and the 1/8" lettering on an ARCH D sheet is 9px if you rasterise the
+whole thing at once, versus 37px at 300 DPI — where the sheet becomes 78 MP and exceeds both mobile
+canvas limits and every cloud API's per-image cap.
+
+**Which engine to pick is a real decision, and it differs for drawings and specs** — see
+[docs/ocr.md](docs/ocr.md).
+
 ### Preservation mode
 
 Provenance, a tracing overlay for checking a redraw against its source, and — more importantly —
@@ -299,7 +307,7 @@ drop-in replacement of `openPdfTakeoff`, and for what the richer model needs fro
 ```bash
 npm install
 npm run dev        # demo at :5173
-npm test           # 193 unit tests
+npm test           # 206 unit tests
 npm run test:e2e   # 58 browser tests (Playwright + Chromium)
 npm run check      # typecheck + lint + unit tests
 npm run check:all  # the above, plus the browser suite
@@ -314,7 +322,7 @@ worker, since two versions in one page fail in confusing ways.
 ## Status
 
 Every functional area of the product spec is implemented, and both halves of the test pyramid are in
-place: **193 unit tests** for the pure logic, and **58 Playwright tests** for everything that needs a
+place: **206 unit tests** for the pure logic, and **58 Playwright tests** for everything that needs a
 real browser — rasterisation, the pointer gesture loop, touch and pinch, the compare pipeline, and
 the IndexedDB adapters, none of which a headless DOM can reach.
 

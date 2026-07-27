@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mergeByLine, splitWords, unionBox } from "../src/core/textLayer";
 import { findInWords } from "../src/plugins/search";
-import { toTextItems } from "../src/plugins/ocr";
+import { dedupeWords, planTileGrid, toTextItems } from "../src/plugins/ocr";
 import { migrate, planMigration } from "../src/plugins/migration";
 import type { TextItem } from "../src/core/document";
 import type { Annotation } from "../src/core/types";
@@ -161,6 +161,105 @@ describe("toTextItems", () => {
   it("feeds the same search path as native text", () => {
     const items = toTextItems(words, 4);
     expect(findInWords(splitWords(items), "DEMOLITION PLAN", 7)).toHaveLength(1);
+  });
+});
+
+// ---- OCR tiling ------------------------------------------------------------
+
+describe("planTileGrid", () => {
+  // ARCH D and US Letter, in PDF points.
+  const ARCH_D = { w: 36 * 72, h: 24 * 72 };
+  const LETTER = { w: 8.5 * 72, h: 11 * 72 };
+  const opts = { dpi: 300, maxTilePixels: 12e6, overlap: 72 };
+
+  it("leaves a page that already fits as a single tile", () => {
+    // Letter at 300 DPI is 8.4 MP — under the budget, so cutting it would only add seams.
+    const tiles = planTileGrid(LETTER.w, LETTER.h, opts);
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]).toMatchObject({ x: 0, y: 0, w: LETTER.w, h: LETTER.h });
+  });
+
+  it("splits a large sheet so no tile exceeds the budget", () => {
+    const tiles = planTileGrid(ARCH_D.w, ARCH_D.h, opts);
+    expect(tiles.length).toBeGreaterThan(1);
+    for (const t of tiles) {
+      expect(t.w * t.scale * t.h * t.scale).toBeLessThanOrEqual(opts.maxTilePixels * 1.35);
+    }
+  });
+
+  it("reaches the requested DPI — the whole point of tiling", () => {
+    const [tile] = planTileGrid(ARCH_D.w, ARCH_D.h, opts);
+    // A PDF point is 1/72", so scale is DPI/72. At 300 DPI, 1/8" lettering is ~37px tall; the
+    // ~9px it gets from fitting a whole D sheet in one raster is unreadable to any engine.
+    expect(tile!.scale).toBeCloseTo(300 / 72, 6);
+    expect(0.125 * 72 * tile!.scale).toBeGreaterThan(20);
+  });
+
+  it("covers the whole page", () => {
+    const tiles = planTileGrid(ARCH_D.w, ARCH_D.h, opts);
+    expect(Math.min(...tiles.map((t) => t.x))).toBe(0);
+    expect(Math.min(...tiles.map((t) => t.y))).toBe(0);
+    expect(Math.max(...tiles.map((t) => t.x + t.w))).toBeCloseTo(ARCH_D.w, 6);
+    expect(Math.max(...tiles.map((t) => t.y + t.h))).toBeCloseTo(ARCH_D.h, 6);
+  });
+
+  it("overlaps neighbours so a word on a seam is whole somewhere", () => {
+    const tiles = planTileGrid(ARCH_D.w, ARCH_D.h, opts);
+    const first = tiles[0]!;
+    const rightNeighbour = tiles.find((t) => t.y === first.y && t.x > first.x);
+    expect(rightNeighbour).toBeDefined();
+    // The neighbour starts before the first tile ends.
+    expect(rightNeighbour!.x).toBeLessThan(first.x + first.w);
+    expect(first.x + first.w - rightNeighbour!.x).toBeGreaterThanOrEqual(opts.overlap);
+  });
+
+  it("never lets a tile spill off the page", () => {
+    for (const t of planTileGrid(ARCH_D.w, ARCH_D.h, opts)) {
+      expect(t.x).toBeGreaterThanOrEqual(0);
+      expect(t.y).toBeGreaterThanOrEqual(0);
+      expect(t.x + t.w).toBeLessThanOrEqual(ARCH_D.w + 1e-6);
+      expect(t.y + t.h).toBeLessThanOrEqual(ARCH_D.h + 1e-6);
+    }
+  });
+
+  it("numbers tiles for progress reporting", () => {
+    const tiles = planTileGrid(ARCH_D.w, ARCH_D.h, opts);
+    expect(tiles.map((t) => t.index)).toEqual(tiles.map((_, i) => i));
+    expect(new Set(tiles.map((t) => t.count))).toEqual(new Set([tiles.length]));
+  });
+
+  it("needs more tiles at a higher DPI", () => {
+    const at300 = planTileGrid(ARCH_D.w, ARCH_D.h, opts).length;
+    const at600 = planTileGrid(ARCH_D.w, ARCH_D.h, { ...opts, dpi: 600 }).length;
+    expect(at600).toBeGreaterThan(at300);
+  });
+});
+
+describe("dedupeWords", () => {
+  const w = (str: string, x: number, y: number, width = 40, h = 10) => ({ str, x, y, w: width, h });
+
+  it("keeps distinct words", () => {
+    expect(dedupeWords([w("PLAN", 0, 0), w("SECTION", 200, 0)])).toHaveLength(2);
+  });
+
+  it("merges the same word recognised twice in a tile overlap", () => {
+    expect(dedupeWords([w("FIRESTOP", 100, 100), w("FIRESTOP", 100.4, 100.3)])).toHaveLength(1);
+  });
+
+  it("prefers the copy that was less clipped by the seam", () => {
+    // The tile where the word sat further from an edge captured more of it.
+    const merged = dedupeWords([w("FIRESTOPPING", 100, 100, 30), w("FIRESTOPPING", 100.2, 100, 90)]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.w).toBe(90);
+  });
+
+  it("keeps the same word appearing in genuinely different places", () => {
+    // A drawing repeats labels; only near-identical positions are duplicates.
+    expect(dedupeWords([w("TYP", 100, 100), w("TYP", 800, 400)])).toHaveLength(2);
+  });
+
+  it("handles an empty list", () => {
+    expect(dedupeWords([])).toEqual([]);
   });
 });
 

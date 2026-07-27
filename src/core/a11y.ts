@@ -99,11 +99,32 @@ export function rovingFocus(container: HTMLElement, itemSelector: string): () =>
     const target = all[next];
     if (!target) return;
     target.tabIndex = 0;
-    target.focus();
+    // Marked explicitly rather than left to `:focus-visible`. Engines disagree about whether a
+    // programmatic `focus()` counts as keyboard-initiated even when it follows an arrow key —
+    // Firefox does not match, which leaves a keyboard user arrowing a list with no visible focus
+    // at all. The attribute is the same in every engine.
+    for (const el of all) el.removeAttribute("data-kbd-focus");
+    target.setAttribute("data-kbd-focus", "true");
+    target.focus({ preventScroll: false });
+  };
+
+  // Clicking is not arrowing; drop the marker so a mouse user does not get a stray ring.
+  const onPointer = (e: Event) => {
+    const el = (e.target as HTMLElement | null)?.closest?.(itemSelector);
+    if (el) el.removeAttribute("data-kbd-focus");
+  };
+  const onBlur = (e: FocusEvent) => {
+    (e.target as HTMLElement | null)?.removeAttribute?.("data-kbd-focus");
   };
 
   container.addEventListener("keydown", onKey);
-  return () => container.removeEventListener("keydown", onKey);
+  container.addEventListener("pointerdown", onPointer);
+  container.addEventListener("focusout", onBlur);
+  return () => {
+    container.removeEventListener("keydown", onKey);
+    container.removeEventListener("pointerdown", onPointer);
+    container.removeEventListener("focusout", onBlur);
+  };
 }
 
 /**

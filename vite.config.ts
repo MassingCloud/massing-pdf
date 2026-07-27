@@ -20,6 +20,13 @@ export default defineConfig(({ mode }) => {
         outDir: resolve(__dirname, "dist-demo"),
         emptyOutDir: true,
         target: "es2022",
+        rollupOptions: {
+          // `tesseract.js` is an optional peer the OCR plugin reaches for only when a host has
+          // configured the offline provider. Left unmarked, the demo build emits an unresolved
+          // import that `vite preview` reports as an error at startup — noise that reads like a
+          // failure in CI logs when nothing is actually wrong.
+          external: ["tesseract.js"],
+        },
       },
     };
   }

@@ -41,9 +41,15 @@ information is in the row's accessible name. An armed tool sets `aria-pressed`, 
 `polite` for status, `assertive` for errors. `viewer.announce()` is public so a host replacing the
 toolbar can still be heard.
 
-**Focus visibility.** A focus ring is applied via `:focus-visible`, so it appears for keyboard use
-and not for mouse clicks. Styling `:focus` and then removing the ring because it looked wrong on
-click is the usual route to an unusable interface; this avoids the trade.
+**Focus visibility.** A focus ring appears for keyboard use and not for mouse clicks. Styling
+`:focus` and then removing the ring because it looked wrong on click is the usual route to an
+unusable interface; this avoids the trade.
+
+`:focus-visible` alone is not enough. Arrow-key navigation moves focus with a programmatic
+`focus()`, and engines disagree about whether that counts as keyboard-initiated — Firefox does not
+match, which left someone arrowing through a list with no visible focus at all. Arrow navigation
+therefore sets an explicit `data-kbd-focus` attribute, which behaves identically everywhere, and the
+ring is styled off both.
 
 **Reduced motion and forced colours.** `prefers-reduced-motion` suppresses transitions —
 vestibular disorders make a panning, zooming viewer a worst case. Windows High Contrast Mode

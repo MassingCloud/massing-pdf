@@ -708,7 +708,13 @@
  * what usually leads someone to remove focus styling altogether, which is what makes an interface
  * unusable without a mouse.
  */
-.mpdf-root :focus-visible {
+.mpdf-root :focus-visible,
+/*
+ * Arrow-key navigation sets this explicitly. Engines disagree about whether a programmatic
+ * `focus()` following an arrow key counts as keyboard-initiated for `:focus-visible` — Firefox
+ * says no, which would leave someone arrowing a list with no visible focus at all.
+ */
+.mpdf-root [data-kbd-focus="true"] {
   outline: 2px solid var(--mpdf-focus, #2563eb);
   outline-offset: 2px;
   border-radius: 2px;
@@ -745,5 +751,6 @@
     border: 2px solid Highlight;
     forced-color-adjust: none;
   }
-  .mpdf-root :focus-visible { outline: 2px solid Highlight; }
+  .mpdf-root :focus-visible,
+  .mpdf-root [data-kbd-focus="true"] { outline: 2px solid Highlight; }
 }

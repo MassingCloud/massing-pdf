@@ -22,3 +22,10 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
+    ignore:
+      # Actions are pinned to a floating major (`@v4`), which is what GitHub documents for their
+      # own: it picks up security fixes without a pull request each time. A patch-pinned tag like
+      # `@4.37.3` is just as mutable — only a full SHA is immutable — so it buys no supply-chain
+      # safety and produces a PR on every patch of a scanner that should simply stay current.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch", "version-update:semver-minor"]

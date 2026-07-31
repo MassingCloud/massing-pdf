@@ -50,7 +50,10 @@ export default defineConfig(({ mode }) => {
       dts({
         include: ["src"],
         exclude: ["src/**/*.test.ts"],
-        rollupTypes: false,
+        // Renamed from `rollupTypes` when vite-plugin-dts v5 moved onto unplugin-dts. One file per
+        // module, not a single rolled-up bundle — a consumer's editor resolves a deep import to
+        // real source rather than to one enormous declaration.
+        bundleTypes: false,
       }),
     ],
     server: { open: "/demo/index.html" },

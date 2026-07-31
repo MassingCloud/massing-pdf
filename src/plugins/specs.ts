@@ -119,7 +119,6 @@ export interface SpecLine { text: string; box: Box; page: number }
 export function parseSpecLines(lines: readonly SpecLine[]): SpecSection[] {
   const sections: SpecSection[] = [];
   let current: SpecSection | null = null;
-  let part = "1";
   let article = "";
 
   for (const line of lines) {
@@ -138,7 +137,6 @@ export function parseSpecLines(lines: readonly SpecLine[]): SpecSection[] {
         clauses: [],
       };
       sections.push(current);
-      part = "1";
       article = "";
       continue;
     }
@@ -146,7 +144,9 @@ export function parseSpecLines(lines: readonly SpecLine[]): SpecSection[] {
 
     const partM = PART_HEADING.exec(text);
     if (partM) {
-      part = partM[1]!;
+      // Scoped here deliberately: an article's ref already carries its part number (`3.1`), so
+      // nothing downstream needs to remember which PART we are inside.
+      const part = partM[1]!;
       article = "";
       current.clauses.push({ ref: `PART ${part}`, depth: 0, text: partM[2]?.trim() || `PART ${part}`, page, box: line.box });
       continue;

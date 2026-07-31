@@ -411,6 +411,7 @@ export function tesseractProvider(opts: {
       throw new Error(
         "tesseractProvider() could not load `tesseract.js`. Install it in the host application " +
         `(npm install tesseract.js), or pass \`load\` to supply the module yourself. Cause: ${(e as Error).message}`,
+        { cause: e },
       );
     }
     worker = await mod.createWorker(opts.lang ?? "eng", 1, {

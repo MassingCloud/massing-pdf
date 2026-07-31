@@ -176,10 +176,13 @@ export function paddleOcrProvider(options: PaddleOcrOptions = {}): OcrProvider {
           : await import(/* @vite-ignore */ specifier)) as WebModule;
         if (!mod?.PaddleOcrService) throw new Error("no PaddleOcrService export");
       } catch (e) {
+        // `cause` as well as the message: the message is what a developer reads, the cause is what
+        // a stack trace needs to point at the import that actually failed.
         throw new Error(
           "paddleOcrProvider() could not load `ppu-paddle-ocr`. Install it and `onnxruntime-web` in " +
           "the host application (npm install ppu-paddle-ocr onnxruntime-web), or pass `load` to " +
           `supply the module yourself. Cause: ${(e as Error).message}`,
+          { cause: e },
         );
       }
 

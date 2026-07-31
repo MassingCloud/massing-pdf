@@ -17,6 +17,24 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const modules = join(root, "node_modules");
 
 /**
+ * Does anything here actually ship?
+ *
+ * With no runtime dependencies, the tree is build tooling and peers, and the weak-copyleft
+ * allowance below is safe. Add a runtime dependency and it stops being safe, so this fails loudly
+ * rather than letting the allowance widen by accident.
+ */
+const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const runtimeDeps = Object.keys(manifest.dependencies ?? {});
+const shipsNothing = runtimeDeps.length === 0;
+if (!shipsNothing) {
+  console.error(`This package now has runtime dependencies (${runtimeDeps.join(", ")}), which ship`);
+  console.error("to every consumer. The weak-copyleft allowance in this script assumed nothing");
+  console.error("shipped. Re-check it before proceeding — an MPL-2.0 file reaching a consumer is");
+  console.error("a different question entirely.");
+  process.exit(1);
+}
+
+/**
  * Licences that may appear.
  *
  * Additions belong in a pull request with a reason, which is the point of an explicit list rather
@@ -28,6 +46,21 @@ const ALLOWED = new Set([
 ]);
 
 /**
+ * Additionally tolerated while nothing in the tree can reach a consumer.
+ *
+ * MPL-2.0 is *file-level* copyleft: it obliges you to publish changes you make to the covered files
+ * themselves, and reaches no further. It does not cover code that merely uses the library, and a
+ * build tool's output is not a derivative work of the tool — `lightningcss`, which Vite 8 uses to
+ * transform CSS, is the case that brought this up.
+ *
+ * This is only sound because the published package has **no runtime dependencies at all**: every
+ * package scanned here is build tooling or a peer the host installs itself, so none of it ships.
+ * That assumption is checked below rather than trusted, because it is exactly the sort of thing
+ * that quietly stops being true.
+ */
+const BUILD_ONLY = new Set(["MPL-2.0"]);
+
+/**
  * Evaluate an SPDX expression against {@link ALLOWED}.
  *
  * `OR` is a choice, so one acceptable option is enough. `AND` is a conjunction — the package is
@@ -35,13 +68,16 @@ const ALLOWED = new Set([
  * matching the whole expression as a literal string, gets `(MIT AND Zlib)` wrong in opposite
  * directions.
  */
-function isAllowed(expression) {
+function isAllowed(expression, extra = new Set()) {
   const clean = expression.replace(/\bWITH\s+[\w.-]+/gi, "").trim();
   return clean
     .split(/\s+OR\s+/i)
     .some((alternative) => alternative
       .split(/\s+AND\s+/i)
-      .every((term) => ALLOWED.has(term.replace(/[()]/g, "").trim())));
+      .every((term) => {
+        const t = term.replace(/[()]/g, "").trim();
+        return ALLOWED.has(t) || extra.has(t);
+      }));
 }
 
 /** Normalise the several shapes `license` takes across the registry's history. */
@@ -81,7 +117,7 @@ function walk(dir, depth = 0) {
       if (pkg.name && pkg.version) {
         const licence = licenceOf(pkg);
         counts.set(licence, (counts.get(licence) ?? 0) + 1);
-        if (!isAllowed(licence)) offenders.push({ name: pkg.name, version: pkg.version, licence });
+        if (!isAllowed(licence, BUILD_ONLY)) offenders.push({ name: pkg.name, version: pkg.version, licence });
       }
     } catch { /* not a package directory */ }
 
@@ -112,4 +148,8 @@ if (offenders.length) {
   process.exit(1);
 }
 
-console.log(`licences OK (${total} packages, ${counts.size} distinct licences, all permissive)`);
+const weak = [...counts].filter(([l]) => !isAllowed(l) && isAllowed(l, BUILD_ONLY));
+for (const [licence, n] of weak) {
+  console.log(`note: ${n} build-time package(s) under ${licence} — permitted because nothing here ships`);
+}
+console.log(`licences OK (${total} packages, ${counts.size} distinct licences)`);

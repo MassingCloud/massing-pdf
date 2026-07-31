@@ -61,7 +61,7 @@ test.describe("strict Content-Security-Policy", () => {
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
     await page.goto("/index.html");
-    await page.waitForFunction(() => Boolean(window.viewer), null, { timeout: 30_000 });
+    await page.waitForFunction(() => Boolean(window.viewer?.bus), null, { timeout: 30_000 });
     await page.locator("#sample").click();
     await page.waitForFunction(() => Boolean(window.viewer.doc), null, { timeout: 60_000 });
 
@@ -103,7 +103,7 @@ test.describe("strict Content-Security-Policy", () => {
     });
 
     await page.goto("/index.html");
-    await page.waitForFunction(() => Boolean(window.viewer), null, { timeout: 30_000 });
+    await page.waitForFunction(() => Boolean(window.viewer?.bus), null, { timeout: 30_000 });
     await page.locator("#sample").click();
     await page.waitForFunction(() => Boolean(window.viewer.doc), null, { timeout: 60_000 });
 

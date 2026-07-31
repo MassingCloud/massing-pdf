@@ -19,7 +19,7 @@ test.describe("rasterisation", () => {
     // The regression this guards: `load()` used to await rasterisation, so a backgrounded tab —
     // where rAF stops — left the host's `await viewer.load(...)` hanging indefinitely.
     await page.goto("/demo/index.html");
-    await page.waitForFunction(() => Boolean(window.viewer));
+    await page.waitForFunction(() => Boolean(window.viewer?.bus));
     const settled = await page.evaluate(async () => {
       const t0 = performance.now();
       document.getElementById("sample")!.click();

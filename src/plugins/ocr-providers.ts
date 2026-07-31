@@ -1,29 +1,33 @@
 /**
- * Concrete OCR providers: a local engine, two cloud engines, and a fallback chain.
+ * Reference OCR adapters.
  *
- * ## Local first
+ * **The viewer has no OCR engine and does not pick one for you.** What it owns is the part that is
+ * genuinely its problem: tiling a sheet at a resolution text can survive, de-duplicating across tile
+ * overlaps, and mapping results back into page space so search, spec parsing and title-block
+ * extraction all see one text layer. The recognition itself is a host decision, because it is the
+ * host that knows whether drawings may leave the building, what the budget is, and which languages
+ * matter.
  *
- * {@link paddleOcrProvider} runs PaddleOCR in the browser through `onnxruntime-web`. It is the
- * recommended engine for drawings, and it needs no network and no account: the drawing never leaves
- * the machine, there is nothing to meter, and it works on a site laptop with no signal.
+ * These adapters exist so that decision is cheap rather than pre-made. Nothing here ships in the
+ * package — every engine is loaded through a dynamic import behind an optional dependency, so a
+ * consumer who never calls one of these functions downloads none of it, and the built library is the
+ * same size either way.
  *
- * The reason it beats Tesseract here is specific rather than general. PaddleOCR's detector finds
- * text at arbitrary angles natively; on a drawing, dimension strings run along dimension lines at
- * every angle and section marks are rotated. Tesseract needs the page deskewed first and simply
- * misses those runs, which is why it is only recommended for specification text.
+ * Writing your own is four methods' worth of surface; see `OcrProvider` in `./ocr`. Trained weights
+ * and an inference runtime are unavoidable for anything that can read 6pt lettering off a scan —
+ * that cost belongs to whichever engine you choose, not to this library.
  *
  * ## A word about API keys
  *
- * The cloud providers remain for hosts that want them. Every option here accepts a `proxy` URL, and
- * that is the intended way to use them. An API key placed in browser code is a *published* key — it
- * ships in the bundle, it is readable in devtools, and it is billable by anyone who finds it. The
- * `key` fields exist for local development and for genuinely trusted deployments (an internal tool
- * behind SSO on a private network); they log a warning when used in a page that isn't localhost.
+ * The cloud adapters all accept a `proxy` URL, and that is the intended way to use them. An API key
+ * placed in browser code is a *published* key — it ships in the bundle, it is readable in devtools,
+ * and it is billable by anyone who finds it. The `key` fields exist for local development and for
+ * genuinely trusted deployments (an internal tool behind SSO on a private network); they log a
+ * warning when used in a page that isn't localhost.
  *
  * A proxy is a few lines on the host: accept the image, attach the credential server-side, forward,
  * return the JSON unchanged.
  */
-import { tesseractProvider } from "./ocr";
 import type { OcrInput, OcrProvider, OcrResult, OcrWord } from "./ocr";
 
 /** Canvas → base64 PNG, without the data-URL prefix. */
@@ -544,24 +548,6 @@ export function fallbackOcrProvider(providers: readonly OcrProvider[], options: 
       await Promise.all(providers.map((p) => p.dispose?.()));
     },
   };
-}
-
-/**
- * The recommended chain: PaddleOCR locally, Tesseract behind it.
- *
- * Both run on the machine, so a drawing never leaves it and there is nothing to meter. Tesseract is
- * the weaker engine on drawings — it wants deskewed text and misses rotated dimension strings — but
- * it is a genuine second opinion when the Paddle models are unavailable, and it is already a
- * supported optional peer.
- *
- * Pass cloud providers explicitly if you want them; this deliberately does not reach for the
- * network on your behalf.
- */
-export function localOcrProvider(
-  paddle: PaddleOcrOptions = {},
-  options: FallbackOptions = {},
-): OcrProvider {
-  return fallbackOcrProvider([paddleOcrProvider(paddle), tesseractProvider()], options);
 }
 
 /** Exposed for hosts that want to post the tile themselves. */

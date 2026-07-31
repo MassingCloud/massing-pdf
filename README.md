@@ -173,6 +173,18 @@ Everything reads text through one kernel seam — `viewer.pageText(page)`, which
 layer or recognised text when there isn't one — which is why one provider lights up search, specs and
 the sheet register at once.
 
+**There is no default engine and none ships in the package.** The built library is 273 KB with or
+without OCR; every adapter loads through a dynamic import behind an optional dependency. Adapters for
+Tesseract, PaddleOCR, Azure and Google Vision are provided as reference implementations — the choice
+is the host's, because whether drawings may leave the building is not knowable from here.
+
+To inform that choice rather than assert it, `e2e/ocr-bench.spec.ts` measures engines against the
+sample sheet's title block, whose contents are generated and therefore known exactly. On a 300 DPI
+tile carrying 6–22pt text, PaddleOCR recovered 8 of 8 expected strings and Tesseract 3 of 8 —
+Tesseract read the large text and missed every 6pt label, which is where a title block keeps its
+metadata. Run it against your own sheets: `npx playwright test --project=ocr-bench`. Details and
+timings in [docs/ocr.md](docs/ocr.md).
+
 Sheets are **tiled** before recognition, because resolution dominates the outcome: OCR needs ~18–20
 pixels of character height, and the 1/8" lettering on an ARCH D sheet is 9px if you rasterise the
 whole thing at once, versus 37px at 300 DPI — where the sheet becomes 78 MP and exceeds both mobile

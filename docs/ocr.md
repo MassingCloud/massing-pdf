@@ -35,88 +35,93 @@ ocr: {
 Overlap costs recognition time but prevents words being cut in half at a seam; duplicates from the
 overlap are merged afterwards, preferring the copy that was less clipped.
 
-## What to use
+## The viewer does not pick an engine
 
-**Default: `localOcrProvider()` — PaddleOCR on the machine, Tesseract behind it.** The drawing never
-leaves the browser, there is nothing to meter, and it works on a site laptop with no signal. Cloud
-providers remain available and are covered below, but they are no longer the recommendation.
+**There is no default OCR engine, and nothing recognition-related ships in the package.** The built
+library is 273 KB with or without OCR — every engine below is loaded through a dynamic import behind
+an optional dependency, so a consumer who never calls one downloads none of it.
 
-### Drawings — sparse, rotated, tiny text over dense linework
+What the viewer does own is the part that is genuinely its problem, and the part that is annoying to
+get right:
 
-The hard case, and the one where engines actually diverge. Drawing text is sparse rather than
-paragraphed, appears at arbitrary angles (labels along walls, section markers, north arrows), varies
-from 6pt room tags to 24pt sheet numbers on the same sheet, and sits on top of hatching and linework
-that looks like glyphs.
+- tiling a sheet at a resolution the lettering survives, within per-canvas size budgets
+- de-duplicating words across tile overlaps
+- mapping results back into page space, so search, spec parsing and title-block extraction all read
+  one text layer through `viewer.pageText(page)`
 
-**PaddleOCR** is the local engine to use. Its detector finds text at arbitrary angles natively,
-which is the single most relevant capability here: dimension strings run along dimension lines at
-every angle and section marks are rotated. It is Apache-2.0 for both the code and the published
-weights.
+Recognition itself is a host decision. You know whether drawings may leave the building, what the
+budget is, which languages matter, and whether this runs on a workstation or a site tablet. Those
+answers change the right engine, and none of them are knowable from here.
+
+The rest of this page is evidence for making that choice, not a recommendation.
+
+### The floor nobody escapes
+
+Anything that can read 6pt lettering off a scan needs trained weights and something to run them.
+Realistically that is ~25 MB of inference runtime plus ~12 MB of model weights, whichever engine you
+pick. Writing an engine from scratch is training data and years, not a sprint. If OCR is not worth
+that to you, the honest answer is to leave it unconfigured — scanned sheets simply have no text
+layer, which is the state the viewer already handles.
+
+### What we measured
+
+Chromium, WASM backend, the sample sheet's title block at 300 DPI — a 958 × 500 tile carrying text
+from 6pt to 22pt. Reproduce with `npx playwright test --project=ocr-bench`:
+
+| | PaddleOCR | Tesseract |
+|---|---|---|
+| Strings recovered | **8 / 8** | 3 / 8 |
+| Words | 10 | 9 |
+| First tile | 62 s (model download) | 2.8 s |
+| Each tile after | 553 ms | 108 ms |
+
+Tesseract found the large text — the date, `A-201`, `SECOND FLOOR PLAN` — and missed every 6pt
+label: `SCALE`, `DATE`, `DRAWING TITLE`, `SHEET NUMBER`, `REV`. That is the specific failure that
+matters on a drawing, where the small lettering carries the sheet metadata. Being 5× faster per tile
+is no consolation when it cannot read the title block.
+
+Read the timings carefully. The 62 s first tile is model download over the network; bundle the
+weights and it becomes a local read plus graph compilation. The 553 ms is the number that scales: an
+ARCH D sheet is ~8 tiles, so ~4.5 s a sheet — fine when a reviewer opens one, and about 30 minutes
+for a 400-sheet set. That arithmetic is why bulk ingestion belongs on a server rather than in a tab.
+
+This is one tile of one synthetic sheet. Enough to inform a choice; not enough to promise a number
+on your drawings. Point the benchmark at yours.
+
+### Adapters provided
+
+Reference implementations, not endorsements. Each is one function and loads nothing until called.
+
+| Adapter | Needs | Notes |
+|---|---|---|
+| `tesseractProvider()` | `tesseract.js` | Fully local. Good on clean printed body text, weak on drawings — see above. |
+| `paddleOcrProvider()` | `ppu-paddle-ocr`, `onnxruntime-web` | Fully local. Detects text at arbitrary angles, which is why it reads dimension strings and rotated section marks. Apache-2.0 code and weights. |
+| `azureOcrProvider()` | a `proxy` endpoint | Azure AI Document Intelligence (Read). Returns a per-line angle. |
+| `googleVisionOcrProvider()` | a `proxy` endpoint | Use `TEXT_DETECTION`, *not* `DOCUMENT_TEXT_DETECTION` — the document mode assumes a reading order a drawing does not have. |
+| `restOcrProvider()` | your own endpoint | Point it at whatever you self-host. Not an external API. |
+
+Compose whatever you want with `fallbackOcrProvider`:
 
 ```ts
-import { localOcrProvider } from "@massingcloud/pdf-viewer";
-
 ocr: {
   dpi: 300,
-  provider: localOcrProvider({
-    // Bundle these. See "Staying offline" below — it is not optional if you mean it.
-    models: {
-      detection: await fetch("/models/PP-OCRv5_mobile_det.onnx").then((r) => r.arrayBuffer()),
-      recognition: await fetch("/models/PP-OCRv5_rec.onnx").then((r) => r.arrayBuffer()),
-      dictionary: await fetch("/models/en_dict.txt").then((r) => r.arrayBuffer()),
-    },
-  }),
+  provider: fallbackOcrProvider(
+    [paddleOcrProvider({ models }), tesseractProvider()],
+    { onGiveUp: (p, e) => log.warn(`dropped ${p.id}: ${e.message}`) },
+  ),
 }
 ```
 
-**Tesseract is a poor fit for sheets** and it is worth being direct about why: it assumes document
-text with consistent baselines and paragraph structure. On a drawing it needs per-orientation passes,
-deskewing and aggressive preprocessing, and still under-performs. It sits behind PaddleOCR in the
-chain as a second opinion, not as an equal.
+### If you do run an engine locally, supply the weights
 
-### Specifications — dense body text
+`paddleOcrProvider()` will fetch default weights over the network if given none. That breaks the
+offline guarantee this viewer is built around and puts a third party in the path of your drawings —
+the same reason the pdf.js worker is bundled rather than pulled from a CDN.
 
-Ordinary document OCR; every engine does it well. `localOcrProvider()` covers it. If you already run
-Tesseract and it is good enough on your spec sections, there is no reason to change.
-
-### Staying offline actually requires supplying the models
-
-`paddleOcrProvider()` will fetch default weights over the network if you do not give it any. That
-breaks the offline guarantee this viewer is built around and puts a third party in the path of your
-drawings — the same reason the pdf.js worker is bundled rather than pulled from a CDN.
-
-Take the **mobile** tier: detection is about 5 MB and recognition about 7.5 MB, against 84 MB for the
-server detection model, which is not viable in a browser. In the browser the weights are fetched per
-page load and lean on the HTTP cache, so for a genuinely offline deployment either pass ArrayBuffers
-you have bundled, or cache them in IndexedDB or a service worker.
-
-### When to run it somewhere else
-
-Browser inference suits **on-demand** recognition — a reviewer opens a scanned sheet and waits a few
-seconds. It does not suit **bulk ingestion**. A 400-sheet set is roughly 3,200 tiles at 300 DPI, and
-that is a server's job.
-
-Self-hosting PaddleOCR behind your own endpoint is not an external API, and it keeps the same
-guarantees. Point a provider at it and the rest of the pipeline is unchanged.
-
-### Cloud engines, if you want them
-
-Still supported, still behind a `proxy` so the credential stays server-side:
-
-| | |
-|---|---|
-| **Azure AI Document Intelligence (Read)** | Handles rotated text lines and returns a per-line angle. Tuned for higher-resolution input, which suits 300–600 DPI tiles. |
-| **Google Cloud Vision** | Use `TEXT_DETECTION`, *not* `DOCUMENT_TEXT_DETECTION`. The document mode assumes paragraph structure and reading order; on a drawing that assumption actively hurts. |
-| **AWS Textract** | Strongest structured table output of the three — genuinely useful for door or finish *schedules* — but the weakest on sparse rotated text. |
-
-Chain them explicitly if you want cloud cover behind the local engine:
-
-```ts
-fallbackOcrProvider(
-  [paddleOcrProvider({ models }), azureOcrProvider({ proxy: "/api/ocr/azure" })],
-  { onGiveUp: (p, e) => log.warn(`dropped ${p.id}: ${e.message}`) },
-)
-```
+Take the **mobile** tier: detection ~5 MB, recognition ~7.5 MB, against 84 MB for the server
+detection model. In a browser the weights are fetched per page load and lean on the HTTP cache, so
+for a genuinely offline deployment pass ArrayBuffers you have bundled, or cache them in IndexedDB or
+a service worker.
 
 ### Fallbacks
 
@@ -135,59 +140,13 @@ knowing:
 
 ## Cost and privacy
 
-Running locally, both are moot — which is the point.
+Running locally, both are moot.
 
 If you use a cloud provider: at 300 DPI an ARCH D sheet is ~8 tiles, so a 400-sheet set is ~3,200
 API calls. At roughly $1.50 per 1,000 pages that is real money, and it is worth recognising **on
 demand** (the default) rather than eagerly with `auto: true`. Cloud OCR also means sending drawings
 to a third party, which on defence, healthcare or otherwise restricted projects may be disqualifying
 on its own.
-
-## Measuring it yourself
-
-Every published OCR benchmark — OmniDocBench, receipt sets, scanned-page corpora — is measured on
-document-shaped input. A construction sheet is not that, and those numbers should not be assumed to
-transfer.
-
-`e2e/ocr-bench.spec.ts` measures the engines against the demo's generated sample sheet, whose title
-block is drawn by `demo/sample.ts` and is therefore known ground truth rather than an eyeballed
-guess:
-
-```bash
-npx playwright test --project=ocr-bench
-```
-
-It is deliberately outside the normal suite: it downloads ~12 MB of weights and takes minutes. Point
-it at your own sheets before committing to an engine — that is the only benchmark that answers your
-question.
-
-### What it measured here
-
-Chromium, WASM backend, the sample sheet's title block at 300 DPI — a 958 × 500 tile carrying text
-from 6pt to 22pt:
-
-| | PaddleOCR | Tesseract |
-|---|---|---|
-| Strings recovered | **8 / 8** | 3 / 8 |
-| Words | 10 | 9 |
-| First tile | 62 s | 2.8 s |
-| Each tile after | 553 ms | 108 ms |
-
-Tesseract found the large text — the date, `A-201`, `SECOND FLOOR PLAN` — and missed every one of
-the 6pt labels: `SCALE`, `DATE`, `DRAWING TITLE`, `SHEET NUMBER`, `REV`. That is the specific
-failure that matters on a drawing, where the small lettering carries the sheet metadata.
-
-Read the timings carefully:
-
-- **The 62 s first tile is model download**, over the network from the wrapper's default host. Bundle
-  the weights and it is a local read plus graph compilation.
-- **553 ms per tile is the number that scales.** An ARCH D sheet is ~8 tiles, so roughly 4.5 s a
-  sheet — fine when a reviewer opens one, and about 30 minutes for a 400-sheet set. That is the
-  arithmetic behind "browser for on-demand, server for bulk".
-- Tesseract being 5× faster per tile is no consolation when it cannot read the title block.
-
-This is one tile of one synthetic sheet. It is enough to choose an engine and not enough to promise
-a number on your drawings — run it on yours.
 
 ## Writing your own provider
 

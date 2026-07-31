@@ -78,6 +78,12 @@ npm run demo:build standalone demo → dist-demo/
   "Qualifications" needs `\bqualif\w*`. This silently empties the requirements checklist.
 - **A point markup has zero area.** Any code computing an overlap *ratio* against one divides by
   zero-ish and waves it through — check containment instead (see `changeOverlap` in migration).
+- **There is no default OCR engine, deliberately.** The library ships no recognition code and names
+  no engine in `peerDependencies`; adapters load through a dynamic import behind an optional
+  dependency, so `dist/massing-pdf.js` is the same size either way. Adding a blessed default — or a
+  convenience like `localOcrProvider()` that hardcodes one — puts the choice back in the library,
+  which is the thing the host is supposed to own. `e2e/ocr-bench.spec.ts` exists to inform that
+  choice with measurements rather than replace it with an opinion.
 - **All text reads through `viewer.pageText(page)`**, never `doc.textItems` directly. That seam is
   what lets OCR serve a scanned page to search, specs and title-block extraction at once.
 - **A test that samples "did it render" must sample where the drawing is.** The sample sheet is

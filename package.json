@@ -63,23 +63,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "peerDependencies": {
-    "onnxruntime-web": "^1.23.2",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.0.0",
-    "ppu-paddle-ocr": "^6.0.0",
-    "tesseract.js": "^7.0.0"
+    "pdfjs-dist": "^6.0.0"
   },
   "peerDependenciesMeta": {
-    "onnxruntime-web": {
-      "optional": true
-    },
     "pdf-lib": {
-      "optional": true
-    },
-    "ppu-paddle-ocr": {
-      "optional": true
-    },
-    "tesseract.js": {
       "optional": true
     }
   },

@@ -103,7 +103,7 @@ export {
   type TilePlanOptions,
 } from "./plugins/ocr";
 export {
-  paddleOcrProvider, localOcrProvider,
+  paddleOcrProvider,
   azureOcrProvider, googleVisionOcrProvider, fallbackOcrProvider, toBase64Png, toPngBlob,
   type PaddleOcrOptions, type AzureOcrOptions, type GoogleOcrOptions, type FallbackOptions,
 } from "./plugins/ocr-providers";

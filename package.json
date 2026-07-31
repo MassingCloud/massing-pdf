@@ -88,7 +88,7 @@
     "@playwright/test": "^1.62.0",
     "@types/node": "^22.10.2",
     "eslint": "9.39.5",
-    "happy-dom": "^15.11.7",
+    "happy-dom": "^20.11.1",
     "onnxruntime-web": "^1.27.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.1.200",

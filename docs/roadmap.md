@@ -28,9 +28,15 @@ you can drop into an app. Bundling several megabytes of WASM would break the sec
 server would break the first. Picking either would be wrong for half of all consumers.
 
 So `ocrPlugin` owns the rasterisation, the coordinate mapping and the wiring into search, specs and
-title-block extraction, and the *recogniser* is supplied by the host. `tesseractProvider()` covers
-the offline case via a dynamic import of `tesseract.js` (not a dependency here — install it in the
-host); `restOcrProvider()` covers a service. A custom provider is four lines.
+title-block extraction, and the *recogniser* is supplied by the host. There is **no default engine**,
+and none is named in `peerDependencies`: adapters for Tesseract, PaddleOCR, Azure and Google Vision
+are provided as reference implementations, each loaded through a dynamic import behind an optional
+dependency. `dist/massing-pdf.js` is 273 KB whether or not any of them is used. A custom provider is
+four lines.
+
+Choosing for the host would be choosing on their behalf whether drawings may leave the building —
+which is not knowable from here. `e2e/ocr-bench.spec.ts` exists to inform that choice with numbers
+instead.
 
 The seam is `viewer.pageText(page)`, which returns the PDF's own text layer or recognised text when
 there isn't one. Every text consumer goes through it, which is why OCR lights all three up at once.
@@ -119,6 +125,7 @@ simply hangs. These assert on real pixels and real pointer events:
 | `touch.spec.ts` | pinch-zoom and its clamps, anchor stability, two-finger pan not drawing, one-finger drawing, and a gesture the browser cancels mid-way |
 | `persistence` (unit) | the save queue, and what a rejected batch does to it: requeue on failure, conflict settling by policy, and a bodyless 409 |
 | `a11y.spec.ts` | keyboard reachability of every list, arrow/Home/End navigation, Enter and Space activation, landmarks, `aria-pressed`/`aria-selected`, live-region announcements, and a visible focus ring |
+| `ocr-bench.spec.ts` | rasterise → recognise → score, against generated ground truth. Opt-in (`--project=ocr-bench`): it fetches ~12 MB of weights, so it informs a decision rather than gating a build |
 | `csp.spec.ts` | the built demo behind a strict Content-Security-Policy with no `unsafe-eval` and no inline script — a drawing must rasterise with zero violations |
 | `pen.spec.ts` | stylus drawing, pressure samples reaching the record, a palm rejected mid-stroke, touch recovering after the pen is put down, and a pen landing mid-pinch |
 
@@ -136,9 +143,6 @@ Node 20.6+, and 22 avoids the edge entirely.
 
 ### Still uncovered
 
-- **OCR rasterisation end to end.** The coordinate mapping and the kernel fallback are tested; the
-  rasterise-and-recognise round trip needs a provider, and bundling one purely for tests would
-  contradict the reason it is an interface.
 - **Tilt and barrel-rotation.** Pressure is captured and palm rejection works; tilt is read from the
   pointer event but nothing consumes it yet, and no renderer varies stroke width along a stroke.
 - **Conflict-resolution UI.** The client detects a 409, carries both sides of every conflicted

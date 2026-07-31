@@ -182,7 +182,7 @@ To inform that choice rather than assert it, `e2e/ocr-bench.spec.ts` measures en
 sample sheet's title block, whose contents are generated and therefore known exactly. On a 300 DPI
 tile carrying 6–22pt text, PaddleOCR recovered 8 of 8 expected strings and Tesseract 3 of 8 —
 Tesseract read the large text and missed every 6pt label, which is where a title block keeps its
-metadata. Run it against your own sheets: `npx playwright test --project=ocr-bench`. Details and
+metadata. It is also ~5× slower per tile, which is the trade. Run it against your own sheets: `npx playwright test --project=ocr-bench`. Details and
 timings in [docs/ocr.md](docs/ocr.md).
 
 Sheets are **tiled** before recognition, because resolution dominates the outcome: OCR needs ~18–20

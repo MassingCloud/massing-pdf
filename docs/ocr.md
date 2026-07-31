@@ -72,18 +72,24 @@ from 6pt to 22pt. Reproduce with `npx playwright test --project=ocr-bench`:
 |---|---|---|
 | Strings recovered | **8 / 8** | 3 / 8 |
 | Words | 10 | 9 |
-| First tile | 62 s (model download) | 2.8 s |
-| Each tile after | 553 ms | 108 ms |
+| First tile | 62 s cold / 15 s with weights cached | 2.8 s / 1.6 s |
+| Each tile after | 550–850 ms | 110–170 ms |
 
 Tesseract found the large text — the date, `A-201`, `SECOND FLOOR PLAN` — and missed every 6pt
 label: `SCALE`, `DATE`, `DRAWING TITLE`, `SHEET NUMBER`, `REV`. That is the specific failure that
 matters on a drawing, where the small lettering carries the sheet metadata. Being 5× faster per tile
 is no consolation when it cannot read the title block.
 
-Read the timings carefully. The 62 s first tile is model download over the network; bundle the
-weights and it becomes a local read plus graph compilation. The 553 ms is the number that scales: an
-ARCH D sheet is ~8 tiles, so ~4.5 s a sheet — fine when a reviewer opens one, and about 30 minutes
-for a 400-sheet set. That arithmetic is why bulk ingestion belongs on a server rather than in a tab.
+Read the timings carefully.
+
+The first tile is dominated by fetching the weights: 62 s over the network, 15 s once they are
+local. That gap is the argument for bundling them — it is a one-off per session either way, but 62 s
+of apparent hang on opening a scanned sheet is not something a reviewer will wait through twice.
+
+The per-tile figure is the one that scales, and it varies run to run — roughly 550–850 ms on this
+machine's WASM backend, faster where WebGPU is available. At ~8 tiles for an ARCH D sheet that is
+about 5 s a sheet: fine when a reviewer opens one, and half an hour for a 400-sheet set. That
+arithmetic is why bulk ingestion belongs on a server rather than in a tab.
 
 This is one tile of one synthetic sheet. Enough to inform a choice; not enough to promise a number
 on your drawings. Point the benchmark at yours.

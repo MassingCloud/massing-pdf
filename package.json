@@ -79,7 +79,7 @@
     "happy-dom": "^20.11.1",
     "onnxruntime-web": "^1.27.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "^6.2.108",
     "ppu-paddle-ocr": "^6.2.0",
     "tesseract.js": "^7.0.0",
     "typescript": "5.9.3",

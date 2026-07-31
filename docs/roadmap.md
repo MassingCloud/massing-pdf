@@ -98,7 +98,7 @@ the viewer is already instantiable more than once on a page.
 
 Two suites, split by what each can actually reach.
 
-**350 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
+**381 unit tests** (`npm test`) cover the pure logic: geometry and measurement, unit parsing and
 formatting, store mutation/undo/merge semantics, every interchange round trip, spec parsing and
 reference matching, text splitting, search matching, migration planning, OCR coordinate mapping,
 OCR tile planning and overlap de-duplication, optimistic-concurrency wiring, permission enforcement and the audit trail, URL vetting, and the

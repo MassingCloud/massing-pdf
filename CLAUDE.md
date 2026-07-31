@@ -40,7 +40,7 @@ src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)
 scripts/       check-package.mjs — manifest entry points resolve to built files
                check-licences.mjs — no copyleft anywhere in the installed tree
-test/          350 unit tests (vitest)
+test/          381 unit tests (vitest)
 e2e/           browser tests (playwright) — rendering, gestures, touch, pen, compare, adapters,
                keyboard/ARIA (a11y.spec.ts), strict-CSP (csp.spec.ts, against the *built* demo)
                runs on chromium, chromium-touch, webkit, firefox, csp

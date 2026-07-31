@@ -40,7 +40,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts"],
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts", "**/ocr-bench.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         // Big enough that a D sheet at fit-width still has room for both side panels.
@@ -66,13 +66,20 @@ export default defineConfig({
       // per-canvas size limits, and text-layer selection behaviour. Worth running for real rather
       // than assuming they match.
       name: "firefox",
-      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts"],
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts", "**/ocr-bench.spec.ts"],
       use: { ...devices["Desktop Firefox"], viewport: { width: 1600, height: 1000 } },
     },
     {
       name: "webkit",
-      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts"],
+      testIgnore: ["**/touch.spec.ts", "**/pen.spec.ts", "**/csp.spec.ts", "**/ocr-bench.spec.ts"],
       use: { ...devices["Desktop Safari"], viewport: { width: 1600, height: 1000 } },
+    },
+    {
+      // Opt-in only: downloads ~12 MB of ONNX weights and takes minutes. It produces a number for a
+      // decision, it is not a gate, so it must never run as part of `npm run test:e2e`.
+      name: "ocr-bench",
+      testMatch: "**/ocr-bench.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1600, height: 1000 } },
     },
     {
       // Content-Security-Policy has to be checked against the *built* demo. The dev server injects

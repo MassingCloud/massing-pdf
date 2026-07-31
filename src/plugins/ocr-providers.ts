@@ -1,17 +1,29 @@
 /**
- * Concrete OCR providers: Azure, Google, and a fallback chain.
+ * Concrete OCR providers: a local engine, two cloud engines, and a fallback chain.
+ *
+ * ## Local first
+ *
+ * {@link paddleOcrProvider} runs PaddleOCR in the browser through `onnxruntime-web`. It is the
+ * recommended engine for drawings, and it needs no network and no account: the drawing never leaves
+ * the machine, there is nothing to meter, and it works on a site laptop with no signal.
+ *
+ * The reason it beats Tesseract here is specific rather than general. PaddleOCR's detector finds
+ * text at arbitrary angles natively; on a drawing, dimension strings run along dimension lines at
+ * every angle and section marks are rotated. Tesseract needs the page deskewed first and simply
+ * misses those runs, which is why it is only recommended for specification text.
  *
  * ## A word about API keys
  *
- * Every option here accepts a `proxy` URL, and that is the intended way to use them. An API key
- * placed in browser code is a *published* key — it ships in the bundle, it is readable in devtools,
- * and it is billable by anyone who finds it. The `key` fields exist for local development and for
- * genuinely trusted deployments (an internal tool behind SSO on a private network); they log a
- * warning when used in a page that isn't localhost, because the failure is silent and expensive.
+ * The cloud providers remain for hosts that want them. Every option here accepts a `proxy` URL, and
+ * that is the intended way to use them. An API key placed in browser code is a *published* key — it
+ * ships in the bundle, it is readable in devtools, and it is billable by anyone who finds it. The
+ * `key` fields exist for local development and for genuinely trusted deployments (an internal tool
+ * behind SSO on a private network); they log a warning when used in a page that isn't localhost.
  *
  * A proxy is a few lines on the host: accept the image, attach the credential server-side, forward,
  * return the JSON unchanged.
  */
+import { tesseractProvider } from "./ocr";
 import type { OcrInput, OcrProvider, OcrResult, OcrWord } from "./ocr";
 
 /** Canvas → base64 PNG, without the data-URL prefix. */
@@ -57,6 +69,172 @@ function polygonToBox(poly: readonly number[] | readonly { x: number; y: number 
   if (!xs.length) return null;
   const x = Math.min(...xs), y = Math.min(...ys);
   return { text: "", x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+// ---- PaddleOCR, locally ----------------------------------------------------
+
+export interface PaddleOcrOptions {
+  /**
+   * ONNX models, as bytes or as a URL the host serves.
+   *
+   * **Supply these.** Left unset, the library fetches its defaults over the network on first use,
+   * which breaks the offline guarantee this viewer is built around and puts a third-party host in
+   * the path of your drawings. Bundle the weights and pass them, exactly as the pdf.js worker is
+   * bundled rather than pulled from a CDN.
+   *
+   * The mobile tier is the right one for a browser: detection is about 5 MB and recognition about
+   * 7.5 MB, against 84 MB for the server detection model.
+   */
+  models?: {
+    detection?: ArrayBuffer | string;
+    recognition?: ArrayBuffer | string;
+    /** Character dictionary matching the recognition model. */
+    dictionary?: ArrayBuffer | string;
+  };
+  /**
+   * ONNX execution providers, in preference order.
+   *
+   * Defaults to WebGPU with a WASM fallback where the browser supports it. WebGPU is severalfold
+   * faster, and a D-size sheet is enough tiles for that to be the difference between a pause and a
+   * coffee break.
+   */
+  executionProviders?: string[];
+  /** Drop words the engine is less sure of than this. `0` keeps everything. */
+  minConfidence?: number;
+  /**
+   * Called once when the engine finishes loading, with how long it took.
+   *
+   * Initialisation is seconds, not milliseconds — the models have to be fetched and compiled. A
+   * host that shows nothing during it looks broken.
+   */
+  onReady?: (ms: number) => void;
+  /**
+   * Supply the module yourself, instead of letting this import it.
+   *
+   * The default import is deliberately opaque to bundlers so that consumers who never call this
+   * function do not have to install `ppu-paddle-ocr`. The cost of that is a bare specifier the
+   * browser cannot resolve on its own, so a host that bundles the package — or a test that needs it
+   * to actually load — passes it in:
+   *
+   * ```ts
+   * import * as paddle from "ppu-paddle-ocr/web";
+   * paddleOcrProvider({ load: async () => paddle });
+   * ```
+   */
+  load?: () => Promise<unknown>;
+}
+
+/** What the wrapper hands back. Mirrored rather than imported: it is not a dependency here. */
+interface PaddleRecognition {
+  text: string;
+  box: { x: number; y: number; width: number; height: number };
+  confidence: number;
+}
+interface PaddleService {
+  initialize(): Promise<void>;
+  recognize(
+    image: HTMLCanvasElement | ArrayBuffer,
+    options?: { flatten?: boolean },
+  ): Promise<{ results?: PaddleRecognition[]; text: string; confidence: number }>;
+  destroy?(): Promise<void> | void;
+}
+
+/**
+ * PaddleOCR in the browser, via `ppu-paddle-ocr` and `onnxruntime-web`.
+ *
+ * Neither is a dependency of this package — install them in the host if you want local OCR. The
+ * dynamic import means a consumer who never calls this function never downloads either.
+ *
+ * The engine is initialised once and reused across every tile of every page. Constructing it per
+ * tile would recompile the ONNX graph thousands of times over a drawing set.
+ */
+export function paddleOcrProvider(options: PaddleOcrOptions = {}): OcrProvider {
+  let service: PaddleService | null = null;
+  let starting: Promise<PaddleService> | null = null;
+  const floor = options.minConfidence ?? 0;
+
+  const ensure = async (): Promise<PaddleService> => {
+    if (service) return service;
+    // Concurrent tiles must share one initialisation rather than racing to build their own.
+    if (starting) return starting;
+
+    starting = (async () => {
+      type WebModule = { PaddleOcrService: new (opts?: Record<string, unknown>) => PaddleService };
+      let mod: WebModule;
+      try {
+        // Indirect on purpose: `ppu-paddle-ocr` is not a dependency of this package, so a literal
+        // specifier would fail typecheck and make bundlers try to resolve a module most consumers
+        // will never install. The cost is that the browser is handed a bare specifier it cannot
+        // resolve, which is what `load` exists to solve.
+        const specifier = "ppu-paddle-ocr/web";
+        mod = (options.load
+          ? await options.load()
+          : await import(/* @vite-ignore */ specifier)) as WebModule;
+        if (!mod?.PaddleOcrService) throw new Error("no PaddleOcrService export");
+      } catch (e) {
+        throw new Error(
+          "paddleOcrProvider() could not load `ppu-paddle-ocr`. Install it and `onnxruntime-web` in " +
+          "the host application (npm install ppu-paddle-ocr onnxruntime-web), or pass `load` to " +
+          `supply the module yourself. Cause: ${(e as Error).message}`,
+        );
+      }
+
+      const began = Date.now();
+      const built = new mod.PaddleOcrService({
+        ...(options.models
+          ? {
+            model: {
+              ...(options.models.detection ? { detection: options.models.detection } : {}),
+              ...(options.models.recognition ? { recognition: options.models.recognition } : {}),
+              ...(options.models.dictionary ? { charactersDictionary: options.models.dictionary } : {}),
+            },
+          }
+          : {}),
+        ...(options.executionProviders ? { executionProviders: options.executionProviders } : {}),
+      });
+      await built.initialize();
+      options.onReady?.(Date.now() - began);
+      service = built;
+      return built;
+    })();
+
+    try {
+      return await starting;
+    } finally {
+      // Cleared either way: a failed start must not be cached as a permanent one.
+      if (!service) starting = null;
+    }
+  };
+
+  return {
+    id: "paddle",
+    async recognise({ canvas }: OcrInput): Promise<OcrResult> {
+      const engine = await ensure();
+      // `flatten` gives one entry per recognised item rather than grouped lines. A drawing has no
+      // reading order worth preserving — labels are scattered across the sheet, not set in
+      // paragraphs — and the tiling layer positions everything by coordinate anyway.
+      const out = await engine.recognize(canvas, { flatten: true });
+      const words: OcrWord[] = [];
+      for (const item of out.results ?? []) {
+        if (!item.text) continue;
+        if (item.confidence < floor) continue;
+        words.push({
+          text: item.text,
+          x: item.box.x,
+          y: item.box.y,
+          w: item.box.width,
+          h: item.box.height,
+          confidence: item.confidence,
+        });
+      }
+      return { words };
+    },
+    async dispose() {
+      await service?.destroy?.();
+      service = null;
+      starting = null;
+    },
+  };
 }
 
 // ---- Azure -----------------------------------------------------------------
@@ -287,6 +465,22 @@ export interface FallbackOptions {
   /** Called when one provider fails and the next is tried. */
   onFallback?: (failed: OcrProvider, error: Error, next: OcrProvider) => void;
   /**
+   * Called once when a provider is dropped for the rest of the run, with the reason.
+   *
+   * Worth surfacing: silently degrading from the local engine to a cloud one is a privacy and
+   * billing change the operator did not choose, and it should not be discovered on an invoice.
+   */
+  onGiveUp?: (provider: OcrProvider, error: Error) => void;
+  /**
+   * Consecutive failures before a provider is dropped for the remainder of the run.
+   *
+   * The failure that matters is not a bad tile, it is a provider that cannot work at all — a
+   * missing model file, a rejected key, no network. Without this, a drawing set puts that same
+   * doomed attempt through every one of its several thousand tiles, and each one has to time out
+   * before the fallback runs. Set to `0` to retry forever.
+   */
+  giveUpAfter?: number;
+  /**
    * Treat a tile that recognises *nothing* as a failure and try the next provider. Off by default:
    * a genuinely blank tile is normal on a drawing, and retrying every one of them doubles the bill.
    */
@@ -296,29 +490,50 @@ export interface FallbackOptions {
 /**
  * Try providers in order until one succeeds.
  *
- * The intended shape is Azure first with Google behind it: the two fail for different reasons —
- * quota, regional outage, a tile one engine chokes on — so the pair is meaningfully more available
- * than either alone.
+ * The intended shape is the local engine first with a cloud one behind it: PaddleOCR handles the
+ * sheet on the machine, and a host that has configured a cloud provider gets it as cover for the
+ * cases the local models are weak on. The two fail for unrelated reasons, so the pair is
+ * meaningfully more available than either alone.
+ *
+ * A provider that keeps failing is dropped rather than retried forever — see {@link
+ * FallbackOptions.giveUpAfter}.
  */
 export function fallbackOcrProvider(providers: readonly OcrProvider[], options: FallbackOptions = {}): OcrProvider {
   if (!providers.length) throw new Error("fallbackOcrProvider needs at least one provider.");
+  const limit = options.giveUpAfter ?? 3;
+  const strikes = new Map<OcrProvider, number>();
+  const dropped = new Set<OcrProvider>();
 
   return {
     id: `fallback(${providers.map((p) => p.id).join(" → ")})`,
     async recognise(input) {
       const failures: string[] = [];
-      for (let i = 0; i < providers.length; i++) {
-        const provider = providers[i]!;
+      const live = providers.filter((p) => !dropped.has(p));
+      if (!live.length) {
+        throw new Error("every OCR provider has been dropped after repeated failures");
+      }
+
+      for (let i = 0; i < live.length; i++) {
+        const provider = live[i]!;
         try {
           const result = await provider.recognise(input);
-          if (options.emptyIsFailure && !result.words.length && i < providers.length - 1) {
+          if (options.emptyIsFailure && !result.words.length && i < live.length - 1) {
             throw new Error("recognised nothing");
           }
+          // A tile that works clears the record: an intermittent failure should not accumulate
+          // across an entire set and eventually retire a provider that is basically fine.
+          strikes.delete(provider);
           return result;
         } catch (e) {
           const error = e as Error;
           failures.push(`${provider.id}: ${error.message}`);
-          const next = providers[i + 1];
+          const count = (strikes.get(provider) ?? 0) + 1;
+          strikes.set(provider, count);
+          if (limit > 0 && count >= limit) {
+            dropped.add(provider);
+            options.onGiveUp?.(provider, error);
+          }
+          const next = live[i + 1];
           if (!next) break;
           options.onFallback?.(provider, error, next);
         }
@@ -329,6 +544,24 @@ export function fallbackOcrProvider(providers: readonly OcrProvider[], options: 
       await Promise.all(providers.map((p) => p.dispose?.()));
     },
   };
+}
+
+/**
+ * The recommended chain: PaddleOCR locally, Tesseract behind it.
+ *
+ * Both run on the machine, so a drawing never leaves it and there is nothing to meter. Tesseract is
+ * the weaker engine on drawings — it wants deskewed text and misses rotated dimension strings — but
+ * it is a genuine second opinion when the Paddle models are unavailable, and it is already a
+ * supported optional peer.
+ *
+ * Pass cloud providers explicitly if you want them; this deliberately does not reach for the
+ * network on your behalf.
+ */
+export function localOcrProvider(
+  paddle: PaddleOcrOptions = {},
+  options: FallbackOptions = {},
+): OcrProvider {
+  return fallbackOcrProvider([paddleOcrProvider(paddle), tesseractProvider()], options);
 }
 
 /** Exposed for hosts that want to post the tile themselves. */

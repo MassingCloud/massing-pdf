@@ -17,7 +17,7 @@
     // The e2e suite imports the library inside `page.evaluate` using the dev server's own URL.
     // Mapping it here means those blocks are fully typechecked rather than being `any` islands.
     "baseUrl": ".",
-    "paths": { "/src/*": ["./src/*"] },
+    "paths": { "/src/*": ["./src/*"], "/e2e/*": ["./e2e/*"] },
     // Those URLs carry a `.ts` extension because that is what the dev server serves. Nothing is
     // emitted from this config, so allowing the extension costs nothing.
     "allowImportingTsExtensions": true,

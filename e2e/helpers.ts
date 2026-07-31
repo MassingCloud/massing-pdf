@@ -29,7 +29,10 @@ export const INKED_POINT = { x: 600, y: 1000 };
 /** Open the demo and load the generated three-page sample. */
 export async function openSample(page: Page): Promise<void> {
   await page.goto("/demo/index.html");
-  await page.waitForFunction(() => Boolean(window.viewer), null, { timeout: 30_000 });
+  // `Boolean(window.viewer)` is not enough: the demo has a `<div id="viewer">`, and a named element
+  // becomes a window property, so that check passes even when the module threw and never assigned
+  // the real thing. Test for something only a Viewer has.
+  await page.waitForFunction(() => Boolean(window.viewer?.bus), null, { timeout: 30_000 });
 
   // Start from a clean slate: the demo persists markups in IndexedDB across runs.
   await page.evaluate(async () => {

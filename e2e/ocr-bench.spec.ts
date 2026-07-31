@@ -164,8 +164,11 @@ test.describe("OCR engines on a drawing", () => {
       return out;
     }, { region: REGION, dpi: DPI, expected: EXPECTED });
 
+    // Printing the table is the whole point of this spec, so the console rule does not apply.
+    /* eslint-disable no-console */
     console.log("\n=== OCR benchmark: title block, 300 DPI ===");
     console.log(JSON.stringify(report, null, 2));
+    /* eslint-enable no-console */
 
     // No recall threshold: this exists to produce a number, and a hard bar would encode today's
     // model version as a requirement. But an engine that failed to *run* is not a result — the

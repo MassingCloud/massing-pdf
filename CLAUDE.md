@@ -23,7 +23,7 @@ framework here would force one on every consumer.
   stops in a background tab; awaiting pixels makes `load()` hang until the tab is foregrounded.
 
 ## Stack
-- TypeScript 6 (strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), Vite 8, Vitest 4.
+- TypeScript 6 (strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), Vite 8, Vitest 3.
 - Peers: `pdfjs-dist` ^6 (rendering, text), `pdf-lib` ^1.17 (flatten export, optional).
 - Versions deliberately match Massing's `apps/web` so reintegration doesn't duplicate deps.
 
@@ -107,6 +107,10 @@ npm run demo:build standalone demo → dist-demo/
 - **Any clickable element must go through `activate()`** from `core/a11y.ts`. A `div` with an
   `onclick` is unreachable by keyboard and silent to a screen reader, and it is the default thing to
   write. `e2e/a11y.spec.ts` drives real keys and will catch it.
+- **Vitest stays on 3: version 4 does not run on Node 20.** It throws
+  `ReferenceError: Iterator is not defined` — Iterator Helpers are Node 22+ — despite advertising
+  `^20.0.0` in its own `engines`. Node 20 is what Massing requires, so the constraint wins. Local
+  runs use Node 24 and cannot see this; CI's Node 20 leg is what caught it.
 - **A killed Playwright run leaves its dev server behind, and the next run reuses it.**
   `reuseExistingServer: !CI` means whatever is listening on 5173 wins — so after a run is
   interrupted, the next one silently tests the *previous* dependency set. It presents as ~130

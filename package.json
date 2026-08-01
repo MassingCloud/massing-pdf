@@ -22,7 +22,8 @@
     "aec",
     "bcf",
     "xfdf",
-    "bluebeam"
+    "redline",
+    "drawing-review"
   ],
   "files": [
     "dist",

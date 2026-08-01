@@ -229,8 +229,9 @@ invert adjustments for faint dyelines, and a transcription panel for handwriting
 
 Pins map to **BCF topics** with a decodable sheet anchor, so an issue round-trips to the coordination
 model and comes back able to re-place itself on a sheet plotted at a different size. Markups export
-to **XFDF** (Bluebeam, Acrobat, Foxit, PDF-XChange) with a namespaced payload carrying the structured
-fields XFDF has no vocabulary for — lossless back into this tool, and silently ignored elsewhere.
+to **XFDF**, which every major PDF review and annotation tool reads, with a namespaced payload
+carrying the structured fields XFDF has no vocabulary for — lossless back into this tool, and
+silently ignored elsewhere.
 
 ### Offline-first
 

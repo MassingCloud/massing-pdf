@@ -74,7 +74,7 @@ export function exportersPlugin(options: ExportOptions = {}) {
           const pages = await pageBoxes(v);
           const xml = toXfdf(setOf(v), { pages, href: v.doc?.name ?? "" });
           await deliver(new Blob([xml], { type: "application/vnd.adobe.xfdf" }), `${stem(v)}.xfdf`);
-          v.bus.emit("notice", { level: "success", message: "XFDF exported — opens in Bluebeam, Acrobat and Foxit." });
+          v.bus.emit("notice", { level: "success", message: "XFDF exported — opens in any PDF tool that reads markup interchange." });
         },
       });
 

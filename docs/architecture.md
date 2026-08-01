@@ -151,14 +151,14 @@ markup immediately and a pending count until it drains.
 | Format | Fidelity | For |
 |---|---|---|
 | JSON markup set | lossless | this tool, session save/load |
-| XFDF | geometry + comments, plus a namespaced payload for the rest | Bluebeam, Acrobat, Foxit |
+| XFDF | geometry + comments, plus a namespaced payload for the rest | other PDF review tools |
 | BCF topics | issues, with a decodable sheet anchor | coordination models |
 | CSV | flat report, formatted + raw + unit columns | estimating, PM reporting |
 | flattened PDF | pixels + a markup schedule | issuing a reviewed set |
 
 XFDF cannot express status, discipline, quantity or revision context. Rather than lose them, each
 annotation carries a `<massing:record>` child holding the structured half. Other readers ignore it;
-this one round-trips losslessly. When the payload is absent (a file from Bluebeam), the importer
+this one round-trips losslessly. When the payload is absent (a file from another tool), the importer
 falls back to inferring kind and geometry from the XFDF element itself.
 
 ## Testing

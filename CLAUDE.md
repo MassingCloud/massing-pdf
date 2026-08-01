@@ -23,7 +23,7 @@ framework here would force one on every consumer.
   stops in a background tab; awaiting pixels makes `load()` hang until the tab is foregrounded.
 
 ## Stack
-- TypeScript 5.9 (strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), Vite 6, Vitest 3.
+- TypeScript 6 (strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), Vite 8, Vitest 4.
 - Peers: `pdfjs-dist` ^6 (rendering, text), `pdf-lib` ^1.17 (flatten export, optional).
 - Versions deliberately match Massing's `apps/web` so reintegration doesn't duplicate deps.
 
@@ -107,6 +107,16 @@ npm run demo:build standalone demo → dist-demo/
 - **Any clickable element must go through `activate()`** from `core/a11y.ts`. A `div` with an
   `onclick` is unreachable by keyboard and silent to a screen reader, and it is the default thing to
   write. `e2e/a11y.spec.ts` drives real keys and will catch it.
+- **A killed Playwright run leaves its dev server behind, and the next run reuses it.**
+  `reuseExistingServer: !CI` means whatever is listening on 5173 wins — so after a run is
+  interrupted, the next one silently tests the *previous* dependency set. It presents as ~130
+  `waitForFunction` timeouts on `window.viewer?.bus`, which looks exactly like a broken upgrade and
+  is not. It produced two wrong verdicts here, one of them nearly recorded as fact about Vite 8.
+  Kill port 5173 and 4173 before re-running after any dependency change, and prefer running the
+  suite detached so it is never killed part-way.
+- **`tsconfig.json` has no `baseUrl`, deliberately.** TypeScript 6 deprecates it, and `paths` has
+  resolved relative to the config file since TS 5 — the `/src/*` and `/e2e/*` mappings that let the
+  e2e suite typecheck its `page.evaluate` imports work without it.
 - **Bash heredocs here collapse doubled backslashes**, so a scripted edit meant to write a regex
   word-boundary or a newline escape into source lands a literal control character instead — and the
   regex then silently matches nothing. Prefer the Edit tool for anything containing backslashes; if

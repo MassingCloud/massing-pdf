@@ -23,7 +23,7 @@ framework here would force one on every consumer.
   stops in a background tab; awaiting pixels makes `load()` hang until the tab is foregrounded.
 
 ## Stack
-- TypeScript 6 (strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), Vite 8, Vitest 3.
+- TypeScript 6 (strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), Vite 8, Vitest 4.
 - Peers: `pdfjs-dist` ^6 (rendering, text), `pdf-lib` ^1.17 (flatten export, optional).
 - Versions deliberately match Massing's `apps/web` so reintegration doesn't duplicate deps.
 
@@ -107,10 +107,15 @@ npm run demo:build standalone demo → dist-demo/
 - **Any clickable element must go through `activate()`** from `core/a11y.ts`. A `div` with an
   `onclick` is unreachable by keyboard and silent to a screen reader, and it is the default thing to
   write. `e2e/a11y.spec.ts` drives real keys and will catch it.
-- **Vitest stays on 3: version 4 does not run on Node 20.** It throws
-  `ReferenceError: Iterator is not defined` — Iterator Helpers are Node 22+ — despite advertising
-  `^20.0.0` in its own `engines`. Node 20 is what Massing requires, so the constraint wins. Local
-  runs use Node 24 and cannot see this; CI's Node 20 leg is what caught it.
+- **`pdfjs-dist` is held at `~6.1.200`: 6.2 dropped Node 20.** 6.2 uses `Iterator.prototype`
+  (Iterator Helpers, Node 22+) and the unit tests die with `ReferenceError: Iterator is not
+  defined`; 6.1.200 uses it nowhere. *Both* versions declare `engines: >=22.13.0`, so the manifest
+  does not distinguish them — only actual usage does. Node 20 is what Massing requires, so the
+  constraint wins. Local runs are on Node 24 and cannot see any of this; CI's Node 20 leg is what
+  caught it, twice.
+- **6.2 would also raise the browser floor.** Iterator Helpers need Chrome 122+, Firefox 131+,
+  Safari 18.4+, against the Safari 16.4 / Firefox 115 ESR floor documented in
+  `docs/browser-support.md`. Taking a newer pdf.js is a support-matrix decision, not a bump.
 - **A killed Playwright run leaves its dev server behind, and the next run reuses it.**
   `reuseExistingServer: !CI` means whatever is listening on 5173 wins — so after a run is
   interrupted, the next one silently tests the *previous* dependency set. It presents as ~130

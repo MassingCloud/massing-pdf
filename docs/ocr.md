@@ -72,7 +72,7 @@ from 6pt to 22pt. Reproduce with `npx playwright test --project=ocr-bench`:
 |---|---|---|
 | Strings recovered | **8 / 8** | 3 / 8 |
 | Words | 10 | 9 |
-| First tile | 62 s cold / 15 s with weights cached | 2.8 s / 1.6 s |
+| First tile | ~60 s downloading weights, 10–15 s once cached | 1.7–2.8 s |
 | Each tile after | 550–850 ms | 110–170 ms |
 
 Tesseract found the large text — the date, `A-201`, `SECOND FLOOR PLAN` — and missed every 6pt
@@ -82,17 +82,27 @@ is no consolation when it cannot read the title block.
 
 Read the timings carefully.
 
-The first tile is dominated by fetching the weights: 62 s over the network, 15 s once they are
-local. That gap is the argument for bundling them — it is a one-off per session either way, but 62 s
-of apparent hang on opening a scanned sheet is not something a reviewer will wait through twice.
+The first tile is dominated by fetching the weights: about a minute over the network, 10–15 s once
+they are local. That gap is the argument for bundling them — it is a one-off per session either way,
+but a minute of apparent hang on opening a scanned sheet is not something a reviewer will wait
+through twice.
 
 The per-tile figure is the one that scales, and it varies run to run — roughly 550–850 ms on this
 machine's WASM backend, faster where WebGPU is available. At ~8 tiles for an ARCH D sheet that is
 about 5 s a sheet: fine when a reviewer opens one, and half an hour for a 400-sheet set. That
 arithmetic is why bulk ingestion belongs on a server rather than in a tab.
 
-This is one tile of one synthetic sheet. Enough to inform a choice; not enough to promise a number
-on your drawings. Point the benchmark at yours.
+Every figure above is a range across repeated runs on one machine, not a single measurement — the
+cold number in particular swings with cache state, and quoting one run's value implies a precision
+this does not have.
+
+This is also one tile of one synthetic sheet. Enough to inform a choice; not enough to promise a
+number on your drawings. Point the benchmark at yours.
+
+One caution from building it: the expected-strings list is ground truth, and the first version of it
+was written from memory rather than from `demo/sample.ts`. It named the wrong sheet number, which
+scored a *correct* engine at 87.5% and would have understated it in a comparison. If you retarget
+this at your own sheets, take the expected text from something authoritative.
 
 ### Adapters provided
 

@@ -129,6 +129,31 @@ describe("giving up on a broken provider", () => {
     expect(flaky.calls).toBeGreaterThan(6);
   });
 
+  it("does not count a blank tile against the provider", async () => {
+    // Most of a drawing is blank. Counting an empty result as ill-health retired the primary engine
+    // after three tiles of margin and sent the rest of the set to the fallback, which is a cost and
+    // privacy change nobody chose.
+    const blank = stub("paddle", empty);
+    const backup = stub("tesseract", works());
+    const chain = fallbackOcrProvider([blank, backup], { emptyIsFailure: true, giveUpAfter: 3 });
+
+    for (let i = 0; i < 10; i++) await chain.recognise(tile());
+    // Still asked every time: it was never broken, the sheet was just empty there.
+    expect(blank.calls).toBe(10);
+  });
+
+  it("announces the give-up once even when failures overlap", async () => {
+    // `fallbackOcrProvider` is exported, so a host may drive it concurrently. Two in-flight
+    // failures could both cross the threshold and each fire the callback.
+    const onGiveUp = vi.fn();
+    const chain = fallbackOcrProvider(
+      [stub("paddle", fails("no models")), stub("tesseract", works())],
+      { giveUpAfter: 2, onGiveUp },
+    );
+    await Promise.all(Array.from({ length: 8 }, () => chain.recognise(tile())));
+    expect(onGiveUp).toHaveBeenCalledOnce();
+  });
+
   it("fails loudly once every provider has been dropped", async () => {
     const chain = fallbackOcrProvider(
       [stub("a", fails("x")), stub("b", fails("y"))],

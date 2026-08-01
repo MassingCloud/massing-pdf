@@ -237,9 +237,22 @@ export function paddleOcrProvider(options: PaddleOcrOptions = {}): OcrProvider {
       return { words };
     },
     async dispose() {
-      await service?.destroy?.();
-      service = null;
+      // Waits for an initialisation still in flight before releasing. Reading `service` alone missed
+      // it — mid-load `service` is still null, so nothing was destroyed, and the initialiser then
+      // assigned it *after* dispose returned, leaving an ONNX session and its models owned by a
+      // provider the host had already let go of.
+      const pending = starting;
       starting = null;
+      if (pending) {
+        // Swallowed: a start that failed has nothing to release, and dispose is cleanup.
+        await pending.catch(() => undefined);
+      }
+      // Read *after* awaiting, because the initialiser assigns it on the way through. Taking the
+      // reference and clearing the field in one step keeps this to exactly one `destroy()` — going
+      // through both the pending value and `service` destroyed the same engine twice.
+      const live = service;
+      service = null;
+      await live?.destroy?.();
     },
   };
 }
@@ -490,6 +503,10 @@ export interface FallbackOptions {
   /**
    * Treat a tile that recognises *nothing* as a failure and try the next provider. Off by default:
    * a genuinely blank tile is normal on a drawing, and retrying every one of them doubles the bill.
+   *
+   * An empty result never counts toward {@link FallbackOptions.giveUpAfter}. It says something about
+   * the sheet, not about the engine, and on a mostly-white drawing three tiles of margin would
+   * otherwise retire the primary provider for the rest of the run.
    */
   emptyIsFailure?: boolean;
 }
@@ -522,9 +539,11 @@ export function fallbackOcrProvider(providers: readonly OcrProvider[], options: 
 
       for (let i = 0; i < live.length; i++) {
         const provider = live[i]!;
+        let empty = false;
         try {
           const result = await provider.recognise(input);
           if (options.emptyIsFailure && !result.words.length && i < live.length - 1) {
+            empty = true;
             throw new Error("recognised nothing");
           }
           // A tile that works clears the record: an intermittent failure should not accumulate
@@ -534,12 +553,21 @@ export function fallbackOcrProvider(providers: readonly OcrProvider[], options: 
         } catch (e) {
           const error = e as Error;
           failures.push(`${provider.id}: ${error.message}`);
-          const count = (strikes.get(provider) ?? 0) + 1;
-          strikes.set(provider, count);
-          if (limit > 0 && count >= limit) {
-            dropped.add(provider);
-            options.onGiveUp?.(provider, error);
+
+          // A blank tile means the *sheet* was blank there, not that the engine is broken, and most
+          // of a drawing is blank. Counting it would retire the primary engine after three tiles of
+          // margin and quietly send the rest of the set to the fallback.
+          if (!empty) {
+            const count = (strikes.get(provider) ?? 0) + 1;
+            strikes.set(provider, count);
+            // `dropped` gates the callback as well as the retry, so concurrent failures that both
+            // cross the threshold announce it once rather than once each.
+            if (limit > 0 && count >= limit && !dropped.has(provider)) {
+              dropped.add(provider);
+              options.onGiveUp?.(provider, error);
+            }
           }
+
           const next = live[i + 1];
           if (!next) break;
           options.onFallback?.(provider, error, next);

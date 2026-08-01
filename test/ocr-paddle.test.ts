@@ -153,6 +153,30 @@ describe("configuration", () => {
     expect(typeof onReady.mock.calls[0]?.[0]).toBe("number");
   });
 
+  it("releases an engine that was still starting when dispose was called", async () => {
+    // The leak this closes: mid-load `service` is still null, so dispose destroyed nothing, and the
+    // initialiser then assigned it afterwards — an ONNX session with its models loaded, owned by a
+    // provider the host had already discarded.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let destroyed = 0;
+
+    class Slow {
+      async initialize() { await gate; }
+      async recognize() { return { results: [], text: "", confidence: 0 }; }
+      async destroy() { destroyed++; }
+    }
+    const provider = paddleOcrProvider({ load: async () => ({ PaddleOcrService: Slow }) });
+
+    const inFlight = provider.recognise(tile()).catch(() => { /* disposed underneath it */ });
+    await Promise.resolve();
+    const disposing = provider.dispose?.();
+    release();
+    await Promise.all([inFlight, disposing]);
+
+    expect(destroyed).toBe(1);
+  });
+
   it("releases the engine on dispose, and can start again after", async () => {
     const { module, built } = fakeModule([word("x")]);
     const provider = paddleOcrProvider({ load: async () => module });

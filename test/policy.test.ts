@@ -86,6 +86,42 @@ describe("permissions are enforced where the mutation happens", () => {
     expect(store.update(a.id, { subject: "reworded" })).toBeUndefined();
   });
 
+  it("refuses a patch that bundles an edit with a status change", () => {
+    // The bypass this closes: the check used to pick *one* capability, and a patch containing a
+    // status change was only ever tested against `markup:status` — so everything else in the same
+    // object rode along. A site manager may close an issue without being trusted to reword it.
+    const { store } = harness({ granted: ["markup:create", "markup:status"] });
+    const a = store.add(draft({ subject: "original" }))!;
+
+    expect(store.update(a.id, { status: "resolved", subject: "hijacked" })).toBeUndefined();
+    const now = store.get(a.id)!;
+    expect(now.subject).toBe("original");
+    expect(now.status).toBe("open");
+  });
+
+  it("refuses geometry smuggled in alongside a status change", () => {
+    const { store } = harness({ granted: ["markup:create", "markup:status"] });
+    const a = store.add(draft())!;
+    const before = a.points;
+    expect(store.update(a.id, { status: "resolved", points: [{ x: 900, y: 900 }] })).toBeUndefined();
+    expect(store.get(a.id)?.points).toEqual(before);
+  });
+
+  it("allows the bundle when both capabilities are held", () => {
+    const { store } = harness({ granted: ["markup:create", "markup:status", "markup:edit"] });
+    const a = store.add(draft({ subject: "original" }))!;
+    const after = store.update(a.id, { status: "resolved", subject: "reworded" });
+    expect(after?.subject).toBe("reworded");
+    expect(after?.status).toBe("resolved");
+  });
+
+  it("still allows a status-only change without edit rights", () => {
+    // The distinction has to keep working in the direction it was built for.
+    const { store } = harness({ granted: ["markup:create", "markup:status"] });
+    const a = store.add(draft())!;
+    expect(store.update(a.id, { status: "resolved" })?.status).toBe("resolved");
+  });
+
   it("guards calibration, because every measurement on the sheet derives from it", () => {
     const { store } = harness({ granted: ["markup:create"] });
     store.setCalibration({ page: 1, unitsPerPoint: 1 / 6, unit: "ft", source: "preset" }, 1);

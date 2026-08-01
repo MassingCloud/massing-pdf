@@ -85,6 +85,12 @@ instead of offering actions the user's role forbids, and that every attempt is r
 A check that throws is treated as a denial. A permission service being unreachable must not read as
 "allow everything".
 
+Some acts need more than one capability. Editing a markup *and* moving it to `resolved` in the same
+patch needs `markup:edit` and `markup:status`, and both are decided before either is recorded — the
+audit trail carries one entry, `markup:status+markup:edit`, reflecting whether the update actually
+happened. Checking them one at a time would log the first as allowed even when the second refuses,
+which is worse than no entry in a record meant to be evidence.
+
 ## Audit trail
 
 ```ts

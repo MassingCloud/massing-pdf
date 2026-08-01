@@ -125,33 +125,68 @@ export class Policy {
    * failing should not silently grant everything — failing closed is the only safe direction here.
    */
   allows(capability: Capability, annot?: Annotation, detail?: Record<string, unknown>): boolean {
-    const actor = this.opts.actor();
-    let decision: PermissionDecision = true;
-    if (this.opts.check) {
-      try {
-        decision = this.opts.check({
-          capability,
-          actor,
-          ...(annot ? { annot } : {}),
-          ...(annot?.page !== undefined ? { page: annot.page } : {}),
-        });
-      } catch {
-        decision = "The permission check failed, so the action was refused.";
-      }
+    return this.allowsAll([capability], annot, detail);
+  }
+
+  /**
+   * Authorise an act that needs several capabilities at once.
+   *
+   * All of them must pass, and **exactly one** record is written, describing what actually
+   * happened. Asking `allows()` twice in a row instead would log the first as allowed even when the
+   * second refuses the act — an audit trail showing a successful status change that never took
+   * place, which is worse than no entry at all in the one feature whose point is being trustworthy.
+   */
+  allowsAll(
+    capabilities: readonly Capability[],
+    annot?: Annotation,
+    detail?: Record<string, unknown>,
+  ): boolean {
+    if (!capabilities.length) return true;
+
+    // Every decision is taken before anything is recorded, so a later refusal cannot leave an
+    // earlier "allowed" behind it.
+    const decisions = capabilities.map((capability) => ({
+      capability,
+      decision: this.decide(capability, annot),
+    }));
+    const refused = decisions.find((d) => d.decision !== true);
+    // A single capability keeps its own name, so existing log queries still match.
+    const action = capabilities.join("+");
+
+    if (refused) {
+      const reason = typeof refused.decision === "string"
+        ? refused.decision
+        : `You do not have permission for ${describe(refused.capability)}.`;
+      this.opts.onDeny?.(reason, refused.capability);
+      this.record(action, false, {
+        reason,
+        ...(annot ? { annot } : {}),
+        ...(detail ? { detail } : {}),
+      });
+      return false;
     }
-    const allowed = decision === true;
-    if (!allowed) {
-      const reason = typeof decision === "string"
-        ? decision
-        : `You do not have permission for ${describe(capability)}.`;
-      this.opts.onDeny?.(reason, capability);
-    }
-    this.record(capability, allowed, {
-      ...(typeof decision === "string" ? { reason: decision } : {}),
+
+    this.record(action, true, {
       ...(annot ? { annot } : {}),
       ...(detail ? { detail } : {}),
     });
-    return allowed;
+    return true;
+  }
+
+  /** Ask the host, without recording. A check that throws denies. */
+  private decide(capability: Capability, annot?: Annotation): PermissionDecision {
+    if (!this.opts.check) return true;
+    try {
+      return this.opts.check({
+        capability,
+        actor: this.opts.actor(),
+        ...(annot ? { annot } : {}),
+        ...(annot?.page !== undefined ? { page: annot.page } : {}),
+      });
+    } catch {
+      // Failing closed: a permission service that is unreachable must not read as "allow".
+      return "The permission check failed, so the action was refused.";
+    }
   }
 
   /** Record something that is not gated — an export that happened, a document that was opened. */

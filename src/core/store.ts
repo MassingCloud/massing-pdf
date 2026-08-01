@@ -199,9 +199,13 @@ export class AnnotationStore {
       const MANAGED = new Set(["id", "version", "updatedAt"]);
       const changesContent = Object.keys(patch).some((k) => k !== "status" && !MANAGED.has(k));
 
-      if (changesStatus && !this.o.policy.allows("markup:status", before)) return undefined;
-      if (changesContent && !this.o.policy.allows("markup:edit", before)) return undefined;
-      // Neither: nothing to authorise, and nothing to do.
+      // Authorised as one act. Asking twice would record the first as allowed even when the second
+      // refuses the update, leaving an audit trail that shows a change which never happened.
+      const needed = [
+        ...(changesStatus ? ["markup:status" as const] : []),
+        ...(changesContent ? ["markup:edit" as const] : []),
+      ];
+      if (needed.length && !this.o.policy.allowsAll(needed, before)) return undefined;
     }
     if (before.locked && !("locked" in patch)) return before;
     const after = this.derive({ ...before, ...patch, id: before.id });

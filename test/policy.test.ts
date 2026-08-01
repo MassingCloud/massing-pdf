@@ -181,6 +181,40 @@ describe("the audit trail", () => {
     expect(entry?.reason).toMatch(/does not allow creating markups/);
   });
 
+  it("does not record an allowed capability for an act that was refused", () => {
+    // A bundled patch needs two capabilities. Checking them one at a time wrote
+    // `markup:status allowed:true` before `markup:edit allowed:false` — a compliance reviewer
+    // reading that sees a status change that never happened.
+    const { store, audit } = harness({ granted: ["markup:create", "markup:status"] });
+    const a = store.add(draft({ subject: "original" }))!;
+    audit.length = 0;
+
+    store.update(a.id, { status: "resolved", subject: "hijacked" });
+
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.allowed).toBe(false);
+    expect(audit[0]?.action).toBe("markup:status+markup:edit");
+    expect(audit[0]?.reason).toMatch(/does not allow editing markups/);
+  });
+
+  it("records a bundled act that succeeded as one entry", () => {
+    const { store, audit } = harness({ granted: ["markup:create", "markup:status", "markup:edit"] });
+    const a = store.add(draft())!;
+    audit.length = 0;
+    store.update(a.id, { status: "resolved", subject: "reworded" });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ action: "markup:status+markup:edit", allowed: true });
+  });
+
+  it("leaves a single-capability act named as it always was", () => {
+    // Existing log queries should keep matching.
+    const { store, audit } = harness({ granted: ["markup:create", "markup:edit"] });
+    const a = store.add(draft())!;
+    audit.length = 0;
+    store.update(a.id, { subject: "reworded" });
+    expect(audit[0]?.action).toBe("markup:edit");
+  });
+
   it("keeps working when the sink throws", () => {
     // The sink is the host's code. A broken logger cannot be allowed to stop a review.
     const bus = new EventBus();

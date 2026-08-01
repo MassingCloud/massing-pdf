@@ -27,7 +27,8 @@ Also covered by semver:
 
 ## Before 1.0
 
-- Breaking changes land in a **minor** bump (`0.1.x` → `0.2.0`) and are listed in the release notes.
+- Breaking changes land in a **minor** bump (`0.1.x` → `0.2.0`) and are listed in
+  [CHANGELOG.md](../CHANGELOG.md).
 - Bug fixes and additive changes land in a **patch** bump.
 
 ## After 1.0

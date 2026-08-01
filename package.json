@@ -27,6 +27,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "main": "./dist/massing-pdf.js",

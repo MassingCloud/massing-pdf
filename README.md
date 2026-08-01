@@ -407,6 +407,7 @@ than deflates.
 | [licences.md](docs/licences.md) | the dependency licence audit |
 | [ocr.md](docs/ocr.md) | choosing and wiring an OCR provider |
 | [roadmap.md](docs/roadmap.md) | what is deliberately not built, and known limitations |
+| [CHANGELOG.md](CHANGELOG.md) | what changed between versions |
 
 ## Security
 

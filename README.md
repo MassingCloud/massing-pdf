@@ -400,6 +400,7 @@ than deflates.
 | [plugin-api.md](docs/plugin-api.md) | writing a tool, action, panel or renderer |
 | [data-model.md](docs/data-model.md) | the annotation record, and what each field is for |
 | [integration-massing.md](docs/integration-massing.md) | dropping this in for `openPdfTakeoff` |
+| [consuming.md](docs/consuming.md) | what the surface guarantees: identity, PDF coupling, CSP, licences |
 | [security.md](docs/security.md) | CSP, the permission model, the audit trail, credentials |
 | [accessibility.md](docs/accessibility.md) | conformance, verified and unverified, stated plainly |
 | [browser-support.md](docs/browser-support.md) | what is supported, and what each claim rests on |

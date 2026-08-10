@@ -82,7 +82,7 @@
     "onnxruntime-web": "^1.27.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "~6.1.200",
-    "ppu-paddle-ocr": "^6.2.0",
+    "ppu-paddle-ocr": "^6.3.0",
     "tesseract.js": "^7.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0",

@@ -31,7 +31,7 @@ function harness(options: { granted?: readonly Capability[]; actor?: string } = 
     author: () => actor,
     pageSize: () => ({ width: 1000, height: 800 }),
   });
-  return { store, audit, denials, policy };
+  return { store, bus, audit, denials, policy };
 }
 
 const draft = (over: Partial<AnnotationDraft> = {}): AnnotationDraft => ({
@@ -120,6 +120,39 @@ describe("permissions are enforced where the mutation happens", () => {
     const { store } = harness({ granted: ["markup:create", "markup:status"] });
     const a = store.add(draft())!;
     expect(store.update(a.id, { status: "resolved" })?.status).toBe("resolved");
+  });
+
+  it("refuses a version write, which is what optimistic concurrency runs on", () => {
+    // The hole this closes: `version` was excluded from the permission check as "store-managed",
+    // but a patch can still set it. A caller with no edit rights could pin it to 999 and every
+    // other user's save would 409 against a base version that never catches up.
+    const { store } = harness({ granted: ["markup:create"] });
+    const a = store.add(draft())!;
+    expect(store.update(a.id, { version: 999 }, { bump: false })).toBeUndefined();
+    expect(store.get(a.id)?.version).toBe(a.version);
+  });
+
+  it("does nothing at all for a patch that changes nothing", () => {
+    // No revision, no `annot:updated`, no version bump. It used to do all three — and with no
+    // permission check, because there was nothing to authorise.
+    const { store, bus } = harness({ granted: ["markup:create"] });
+    const a = store.add(draft())!;
+    let updates = 0;
+    bus.on("annot:updated", () => updates++);
+
+    expect(store.update(a.id, {})).toBe(a);
+    expect(store.update(a.id, { status: a.status })).toBe(a);
+    expect(store.get(a.id)?.version).toBe(a.version);
+    expect(updates).toBe(0);
+  });
+
+  it("still lets a rebase set the version when the editor may edit", () => {
+    // The conflict path re-applies a local edit on top of the server's version, which means writing
+    // `version` deliberately. That has to keep working.
+    const { store } = harness({ granted: ["markup:create", "markup:edit"] });
+    const a = store.add(draft({ subject: "mine" }))!;
+    const rebased = store.update(a.id, { subject: "mine", version: 9 }, { bump: false });
+    expect(rebased?.version).toBe(9);
   });
 
   it("guards calibration, because every measurement on the sheet derives from it", () => {

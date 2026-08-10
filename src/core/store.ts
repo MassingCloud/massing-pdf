@@ -188,24 +188,39 @@ export class AnnotationStore {
   update(id: string, patch: Partial<Annotation>, opts: { bump?: boolean; undoable?: boolean } = {}): Annotation | undefined {
     const before = this.items.get(id);
     if (!before) return undefined;
+    // What the patch would actually change. `id` is excluded because `derive` forces it back to
+    // `before.id`, so a patch cannot move it whatever it says.
+    //
+    // Comparison is shallow, which over-reports for objects and arrays — a new `points` array with
+    // identical values reads as a change. That direction is safe: it creates a revision that was
+    // arguably unnecessary, where the opposite would silently drop a real edit.
+    const record = before as unknown as Record<string, unknown>;
+    const incoming = patch as unknown as Record<string, unknown>;
+    const effective = Object.keys(patch).filter((k) => k !== "id" && incoming[k] !== record[k]);
+
+    // A patch that changes nothing must not bump the version or emit. It used to: `update(id, {})`
+    // produced a revision, and `annot:updated` put a write on the persistence queue for a change
+    // that did not exist. Worse, it happened with no permission check at all, because there was
+    // nothing to authorise — which let a caller with no edit rights bump versions at will and 409
+    // everyone else's saves.
+    if (!effective.length) return before;
+
     if (this.o.policy) {
       // *Every* capability the patch implies, not whichever one it looks most like. A status change
       // is its own permission — a reviewer may close an issue without being allowed to reword it —
       // but picking a single capability let a patch carrying both slip the other one past the gate:
       // `{ status: "resolved", subject: "hijacked" }` was checked only against `markup:status`.
-      const changesStatus = patch.status !== undefined && patch.status !== before.status;
-      // Any other key is an edit. Store-managed fields are excluded because the store writes them
-      // itself on every mutation, so their presence says nothing about intent.
-      const MANAGED = new Set(["id", "version", "updatedAt"]);
-      const changesContent = Object.keys(patch).some((k) => k !== "status" && !MANAGED.has(k));
-
+      //
+      // `version` and `updatedAt` count as content. The store normally writes them itself, but a
+      // patch *can* set them — the conflict-rebase path does exactly that — and `version` drives
+      // optimistic concurrency, so writing it is an edit like any other.
+      const needed = [
+        ...(effective.includes("status") ? ["markup:status" as const] : []),
+        ...(effective.some((k) => k !== "status") ? ["markup:edit" as const] : []),
+      ];
       // Authorised as one act. Asking twice would record the first as allowed even when the second
       // refuses the update, leaving an audit trail that shows a change which never happened.
-      const needed = [
-        ...(changesStatus ? ["markup:status" as const] : []),
-        ...(changesContent ? ["markup:edit" as const] : []),
-      ];
-      if (needed.length && !this.o.policy.allowsAll(needed, before)) return undefined;
+      if (!this.o.policy.allowsAll(needed, before)) return undefined;
     }
     if (before.locked && !("locked" in patch)) return before;
     const after = this.derive({ ...before, ...patch, id: before.id });

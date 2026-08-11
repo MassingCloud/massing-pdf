@@ -13,11 +13,16 @@ import type { Annotation, AnnotStatus } from "../core/types";
 import type { Viewer } from "../core/viewer";
 
 /** The issue fields a pin carries beyond the base annotation record. */
+/**
+ * The parts of an issue that only the *host* understands, carried in `ext`.
+ *
+ * `assignee` and `dueDate` used to live here too. They moved onto `Annotation` because BCF models
+ * them itself, so they are part of the record rather than host-specific decoration — see
+ * `AnnotLinks` and the `assignee`/`dueDate` fields there.
+ */
 export interface IssueFields {
   /** Sequential, per document. Rendered in the pin badge. */
   pinNumber?: number;
-  assignee?: string;
-  dueDate?: string;               // ISO date
   /** Punch / RFI / observation / deficiency / safety — drives the host's workflow routing. */
   issueType?: string;
   /** Host's own reference once promoted, e.g. `RFI-014`. */

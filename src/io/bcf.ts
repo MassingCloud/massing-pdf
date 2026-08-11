@@ -111,10 +111,12 @@ export function toBcfTopic(a: Annotation, opts: { documentName?: string } = {}):
     ...(a.updatedAt ? { modified_date: a.updatedAt } : {}),
     ...(a.note ? { description: describe(a) } : {}),
   };
-  const assignee = a.ext?.["assignee"];
-  if (typeof assignee === "string") topic.assigned_to = assignee;
-  const due = a.ext?.["dueDate"];
-  if (typeof due === "string") topic.due_date = due;
+  // The typed field wins; `ext` is the fallback for records written before these were promoted out
+  // of it. Reading both means an export does not silently lose the assignment on an older record.
+  const assignee = a.assignee ?? a.ext?.["assignee"];
+  if (typeof assignee === "string" && assignee) topic.assigned_to = assignee;
+  const due = a.dueDate ?? a.ext?.["dueDate"];
+  if (typeof due === "string" && due) topic.due_date = due;
 
   const comments: BcfComment[] = (a.replies ?? []).map((rep) => ({
     guid: normaliseGuid(rep.id),
@@ -165,11 +167,10 @@ export function fromBcfTopic(
     ...(topic.priority ? { priority: topic.priority.toLowerCase() as AnnotPriority } : {}),
     ...(topic.labels?.length ? { labels: topic.labels } : {}),
     links: { issueId: topic.guid },
-    ext: {
-      issueType: topic.topic_type,
-      ...(topic.assigned_to ? { assignee: topic.assigned_to } : {}),
-      ...(topic.due_date ? { dueDate: topic.due_date } : {}),
-    },
+    ...(topic.assigned_to ? { assignee: topic.assigned_to } : {}),
+    ...(topic.due_date ? { dueDate: topic.due_date } : {}),
+    // `issueType` stays here: it routes the host's own workflow and no interchange format models it.
+    ext: { issueType: topic.topic_type },
     replies: comments
       .filter((c) => c.topic_guid === topic.guid)
       .map((c) => ({ id: c.guid, author: c.author, body: c.comment, createdAt: c.date })),

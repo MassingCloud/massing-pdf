@@ -170,6 +170,7 @@ const localName = (node: Element): string => {
 function structuredPayload(a: Annotation) {
   return {
     kind: a.kind, status: a.status, priority: a.priority, discipline: a.discipline, trade: a.trade,
+    assignee: a.assignee, dueDate: a.dueDate,
     labels: a.labels, quantity: a.quantity, links: a.links, revision: a.revision,
     provenance: a.provenance, sheetId: a.sheetId, version: a.version, org: a.org,
     points: a.points, style: a.style, ext: a.ext, text: a.text, rotation: a.rotation,
@@ -265,6 +266,7 @@ export function fromXfdf(xml: string, options: XfdfImportOptions): AnnotationDra
     if (payload) {
       Object.assign(draft, {
         status: payload["status"], priority: payload["priority"], discipline: payload["discipline"],
+        assignee: payload["assignee"], dueDate: payload["dueDate"],
         trade: payload["trade"], labels: payload["labels"], quantity: payload["quantity"],
         links: payload["links"], revision: payload["revision"], provenance: payload["provenance"],
         sheetId: payload["sheetId"], org: payload["org"], text: payload["text"],

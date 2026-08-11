@@ -183,6 +183,18 @@ export interface Annotation {
   text?: string;
   status: AnnotStatus;
   priority?: AnnotPriority;
+  /**
+   * Who owns the issue, and by when.
+   *
+   * Typed rather than left in `ext` because BCF models them itself — `assigned_to` and `due_date`
+   * on the topic — so they are part of what a markup *is* rather than something a particular host
+   * bolted on. `pinNumber`, `issueType` and a host's own reference stay in `ext`, which is the
+   * line: this carries what an interchange format understands, `ext` carries what only you do.
+   *
+   * `dueDate` is an ISO date, matching BCF.
+   */
+  assignee?: string;
+  dueDate?: string;
   discipline?: Discipline;
   trade?: string;                 // e.g. "09 Finishes", free-text or CSI division
   labels?: string[];

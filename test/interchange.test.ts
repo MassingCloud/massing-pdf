@@ -154,6 +154,50 @@ describe("XFDF", () => {
   });
 });
 
+describe("workflow fields, once they left `ext`", () => {
+  // `assignee` and `dueDate` were promoted onto `Annotation` because BCF models them itself. They
+  // previously travelled inside `ext`, and `ext` is what XFDF's payload carries — so moving them
+  // without adding them to that payload would have dropped them on every round trip, silently.
+  const pages = new Map([[1, { width: 612, height: 792 }]]);
+  const assigned = annot({ assignee: "B. Engineer", dueDate: "2026-09-30" });
+
+  it("survives an XFDF round trip", () => {
+    const [back] = fromXfdf(toXfdf([assigned], { pages }), { pages });
+    expect(back?.assignee).toBe("B. Engineer");
+    expect(back?.dueDate).toBe("2026-09-30");
+  });
+
+  it("maps onto BCF's own topic fields rather than a private extension", () => {
+    const { topic } = toBcfTopic(assigned);
+    expect(topic.assigned_to).toBe("B. Engineer");
+    expect(topic.due_date).toBe("2026-09-30");
+  });
+
+  it("comes back off a BCF topic typed, not buried in ext", () => {
+    const { topic } = toBcfTopic(assigned);
+    const back = fromBcfTopic(topic, []);
+    expect(back?.assignee).toBe("B. Engineer");
+    expect(back?.dueDate).toBe("2026-09-30");
+    expect(back?.ext?.["assignee"]).toBeUndefined();
+  });
+
+  it("still exports a record written before the promotion", () => {
+    // Anything already stored has them in `ext`. Reading only the typed field would quietly drop
+    // the assignment from that record's export.
+    const legacy = annot({ ext: { assignee: "A. Reviewer", dueDate: "2026-08-01" } });
+    const { topic } = toBcfTopic(legacy);
+    expect(topic.assigned_to).toBe("A. Reviewer");
+    expect(topic.due_date).toBe("2026-08-01");
+  });
+
+  it("appears in the CSV a PM actually reads", () => {
+    const csv = toCsv([assigned]);
+    expect(csv).toContain("Assignee");
+    expect(csv).toContain("B. Engineer");
+    expect(csv).toContain("2026-09-30");
+  });
+});
+
 describe("BCF", () => {
   it("maps a pin to a topic with a decodable sheet anchor", () => {
     const pin = annot({

@@ -63,6 +63,12 @@ npm run demo:build standalone demo → dist-demo/
 - **Adding a markup kind touches five places**: `AnnotKind`, a tool, `render/svg.ts`,
   `io/flatten.ts`, `io/xfdf.ts`. Miss the last two and the markup looks right on screen and vanishes
   on export.
+- **Promoting a field out of `ext` touches four places, and the importer is the one you forget.**
+  `io/xfdf.ts` has a write side (`structuredPayload`) *and* a read side that enumerates payload keys
+  by hand — adding to the first alone means the field is written and then silently dropped on
+  import. Also `io/bcf.ts` both directions, and `io/csv.ts` if a human should see it. The line for
+  *whether* to promote: if an interchange format models the field itself, it belongs on
+  `Annotation`; if only the host understands it, it stays in `ext`.
 - **`Quantity.raw`** is the pre-calibration magnitude in page units. It's what lets a re-calibration
   re-derive every measurement on the page. Don't drop it.
 - **XFDF is bottom-left origin and 0-based pages.** The flip needs the page height.

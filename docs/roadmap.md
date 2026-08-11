@@ -1,7 +1,78 @@
 # Roadmap
 
-Measured against `massing_pdf_viewer_spec.md`. The point of this page is to be honest about the gap
-between what the spec asks for and what exists, rather than to imply the spec is met.
+Two halves. **What is planned**, sequenced and argued, and **where it stands** against
+`massing_pdf_viewer_spec.md` — the second being honest about the gap rather than implying the spec
+is met.
+
+Ordering principle: unblock consumers, then close gaps this repo already documents, then close gaps
+the market expects, then speculate. Anything that needs a decision rather than an implementation is
+marked as such, because those are not mine to make.
+
+## Now — blocking other people
+
+Neither is code, and both are blocking two consumers.
+
+**Publish to npm.** The `@massingcloud` scope is unclaimed, so `npm i` does not resolve.
+MassingViewer lists this as an M0 prerequisite and Massing needs it to drop the local
+`pdfTakeoff.ts`. Sequence in [publishing.md](publishing.md).
+
+**Decide the pdf.js line.** Held at `~6.1.200`. Version 6.2 drops Node 20 and lifts the browser
+floor to Chrome 122+, Firefox 131+, Safari 18.4+. That is a support-matrix decision affecting both
+consumers, not a dependency bump — see [browser-support.md](browser-support.md).
+
+## Next — small, certain, already documented as gaps
+
+Each closes something this repo already admits to, and none is speculative.
+
+**1. Workflow fields into the typed model.** `assignee` and `dueDate` exist only inside `ext` as
+untyped strings, fished back out with `typeof x === "string"` guards in `io/bcf.ts`. They round-trip,
+so nothing is broken, but the type system cannot see the two fields any issue workflow depends on.
+Promote them to `Annotation` alongside `priority`, which is already typed. Small, and a prerequisite
+for the next item.
+
+**2. BCF 3.0 output.** The archive currently declares `VersionId="2.1"` while comments in
+`io/bcf.ts` claim 2.1/3.0. BCF 3.0 is what adds workflow — priorities, deadlines, assignment — which
+is precisely what item 1 makes representable. Emitting 3.0 while still *reading* 2.1 is the
+compatible move.
+
+**3. A conflict-resolution reference.** The client detects a 409, carries both sides of every
+conflicted markup, and resolves by policy. Nothing presents the two versions to a human. It is
+genuinely a host concern, but with two consumers about to build the same panel twice, one reference
+implementation in the demo is cheaper than two divergent ones.
+
+**4. Spec-parser correction path.** Parsing is heuristic and will mis-read an unconventional
+specification with no way for a user to fix it. A correction that persists — "this line is a clause
+heading, that one is not" — turns a wrong parse from a dead end into a nuisance.
+
+## Then — what the category expects and we lack
+
+Larger, and worth arguing before starting.
+
+**5. Real-time co-markup sessions.** Live sync today is a signal that triggers a reload: coarse, no
+presence, no session. Simultaneous multi-user markup on one sheet is table stakes in this category —
+it is the feature plan-review meetings actually run on. This is the biggest functional gap against
+the market, and also the largest piece of work here, because presence and per-markup locking touch
+the store, the adapters and the overlay at once.
+
+**6. Canvas keyboard navigation.** The accessibility statement is *partially* conformant precisely
+because you cannot Tab between markups on the sheet or draw one without a pointing device. The
+markup list is a genuine equivalent for reaching and reading, not for authoring. Closing this is
+what would let the conformance claim lose its qualifier — and it is a procurement gate for public
+sector buyers.
+
+## Speculative — needs a decision, not an implementation
+
+**Automated takeoff.** Quantity takeoff assisted by a model is now its own product category rather
+than a feature. It would fit this library the way OCR does — a provider interface, no bundled engine,
+nothing shipped by default — and the tiling, calibration and quantity machinery it would need
+already exists. But it is a bet on a direction rather than a gap to close, and it should be taken
+deliberately or not at all.
+
+**openCDE / BCF REST API.** The API half of openBIM collaboration, and what an ISO 19650 common data
+environment increasingly expects. Whether this belongs in a *viewer* is genuinely unclear: it is a
+server contract, and `RestAdapter` may be the more honest place for it to surface.
+
+## Where it stands
 
 ## Built
 
@@ -12,7 +83,7 @@ between what the spec asks for and what exists, rather than to imply the spec is
 | §5 Structured markup data | Complete — every field in the spec's list, plus provenance. |
 | §6 Revision survival | Overlay compare, alignment (translation and uniform scale), diff clustering, auto-clouding, slip-sheet migration with a review queue and audit trail. |
 | §7 Specifications workspace | CSI section/clause parsing, clause tree, citation, requirement extraction, and drawing→spec callout detection with nearest-callout auto-citation. |
-| §8 Issues and tasks | Pins, status, assignee, due date, promote-to-issue, BCF topics and `.bcfzip`. **No** forms or daily reports. |
+| §8 Issues and tasks | Pins, status, promote-to-issue, BCF topics and `.bcfzip`. Assignee and due date round-trip but live in `ext` rather than the typed model — see planned item 1. **No** forms or daily reports. |
 | §9 Offline-first | IndexedDB working copy, durable outbound queue, optimistic concurrency — every write carries the version it was based on, and a 409 surfaces both sides. **No** conflict-resolution UI. |
 | §10 Search | Document-wide search over sheet text, markups and the sheet register, faceted and spatially located. OCR-backed on scans when a provider is configured. |
 | §11 Historical mode | Provenance, confidence tags that visibly change how a markup reads, transcription, contrast/invert, tracing overlay. |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fromXfdf, toXfdf } from "../src/io/xfdf";
-import { decodeAnchor, fromBcfTopic, normaliseGuid, toBcfTopic } from "../src/io/bcf";
+import { decodeAnchor, fromBcfTopic, normaliseGuid, toBcfTopic, topicMarkupXml } from "../src/io/bcf";
 import { toCsv, toTakeoffCsv } from "../src/io/csv";
 import { facets, isEmptyFilter, matchesFilter } from "../src/core/filter";
 import type { Annotation } from "../src/core/types";
@@ -151,6 +151,55 @@ describe("XFDF", () => {
     const offPage = annot({ page: 9 });
     const xml = toXfdf([offPage], { pages: PAGES });
     expect(xml).not.toContain("<square");
+  });
+});
+
+describe("markup.bcf conforms to the BCF 2.1 sequence", () => {
+  // The Topic element is an `xs:sequence`, so order is normative. A validating reader rejects the
+  // whole file if it is wrong, and the readers that matter — the BCF managers inside Revit,
+  // Navisworks, Solibri and Tekla — validate. We were emitting Title first and ReferenceLink last.
+
+  /** The schema order, from BCF-XML release_2_1 `markup.xsd`. */
+  const SEQUENCE = [
+    "ReferenceLink", "Title", "Priority", "Index", "Labels", "CreationDate", "CreationAuthor",
+    "ModifiedDate", "ModifiedAuthor", "DueDate", "AssignedTo", "Stage", "Description",
+  ];
+
+  const rich = annot({
+    subject: "Verify header height",
+    note: "Does not match the schedule.",
+    priority: "high",
+    labels: ["structural", "rfi"],
+    assignee: "B. Engineer",
+    dueDate: "2026-09-30",
+    updatedAt: "2026-08-01T09:00:00.000Z",
+  });
+
+  it("emits every element in schema order", () => {
+    const xml = topicMarkupXml(toBcfTopic(rich));
+    const topic = xml.slice(xml.indexOf("<Topic"), xml.indexOf("</Topic>"));
+    const emitted = [...topic.matchAll(/<([A-Za-z]+)>/g)].map((m) => m[1]!);
+
+    // Every element we emit must appear, and their positions must ascend through the sequence.
+    const positions = emitted.map((name) => SEQUENCE.indexOf(name));
+    expect(positions.every((p) => p >= 0), `unknown element in ${emitted.join(", ")}`).toBe(true);
+    expect(positions).toEqual([...positions].sort((x, y) => x - y));
+  });
+
+  it("puts the sheet anchor first, where the schema wants it", () => {
+    // Worth its own assertion: `ReferenceLink` carries the anchor that lets a markup re-place
+    // itself on a re-plotted sheet, so a rejected file loses more than a field.
+    const xml = topicMarkupXml(toBcfTopic(rich));
+    const topic = xml.slice(xml.indexOf("<Topic"));
+    expect(topic.indexOf("<ReferenceLink>")).toBeLessThan(topic.indexOf("<Title>"));
+  });
+
+  it("writes ModifiedAuthor, which the interface declared and nothing emitted", () => {
+    const xml = topicMarkupXml({
+      ...toBcfTopic(rich),
+      topic: { ...toBcfTopic(rich).topic, modified_author: "C. Architect" },
+    });
+    expect(xml).toContain("<ModifiedAuthor>C. Architect</ModifiedAuthor>");
   });
 });
 

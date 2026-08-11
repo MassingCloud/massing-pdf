@@ -30,10 +30,22 @@ so nothing is broken, but the type system cannot see the two fields any issue wo
 Promote them to `Annotation` alongside `priority`, which is already typed. Small, and a prerequisite
 for the next item.
 
-**2. BCF 3.0 output.** The archive currently declares `VersionId="2.1"` while comments in
-`io/bcf.ts` claim 2.1/3.0. BCF 3.0 is what adds workflow — priorities, deadlines, assignment — which
-is precisely what item 1 makes representable. Emitting 3.0 while still *reading* 2.1 is the
-compatible move.
+**2. ~~BCF 3.0 output~~ — dropped, and replaced by schema conformance.** *Done.*
+
+The premise was wrong twice over. BCF **2.1 already models** assignment and deadlines
+(`AssignedTo`, `DueDate`), so item 1 delivered that workflow value without a version bump — the
+claim that 3.0 is where workflow lives came from a secondary source and does not survive contact
+with the schema. And 3.0 adoption is still thin: as of August 2026 the BCF managers plugged into
+Revit, Navisworks, Solibri and Tekla read 2.x, and BIMcollab lists 3.0 as roadmap rather than
+shipped. Emitting 3.0 would have *reduced* interoperability, which is the only thing BCF is for.
+
+Checking our 2.1 output against the actual schema instead found a real defect. `Topic` is an
+`xs:sequence`, so element order is normative, and ours was wrong in three places — `ReferenceLink`
+last when it must be first, `Labels` after `Description`, `AssignedTo` before `DueDate`. A validating
+reader rejects the file outright, and `ReferenceLink` is what carries the sheet anchor. `ModifiedAuthor`
+was declared on the interface and never written. Both fixed, with the order pinned by a test.
+
+Revisit 3.0 when the tools that have to read our files support it.
 
 **3. A conflict-resolution reference.** The client detects a 409, carries both sides of every
 conflicted markup, and resolves by policy. Nothing presents the two versions to a human. It is

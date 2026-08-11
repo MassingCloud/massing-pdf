@@ -69,6 +69,14 @@ npm run demo:build standalone demo → dist-demo/
   import. Also `io/bcf.ts` both directions, and `io/csv.ts` if a human should see it. The line for
   *whether* to promote: if an interchange format models the field itself, it belongs on
   `Annotation`; if only the host understands it, it stays in `ext`.
+- **BCF 2.1's `Topic` is an `xs:sequence`, so element order is normative.** ReferenceLink, Title,
+  Priority, Index, Labels, CreationDate, CreationAuthor, ModifiedDate, ModifiedAuthor, DueDate,
+  AssignedTo, Stage, Description. Get it wrong and a validating reader rejects the whole file — and
+  the readers that matter, the BCF managers inside Revit/Navisworks/Solibri/Tekla, validate. We
+  shipped it wrong in three places. `test/interchange.test.ts` pins the order now.
+- **Do not "upgrade" to BCF 3.0 without checking what reads it.** 2.1 already models assignment and
+  deadlines, and as of August 2026 the mainstream BCF managers still read 2.x. Emitting 3.0 would
+  cost interoperability, which is the only reason to write BCF at all.
 - **`Quantity.raw`** is the pre-calibration magnitude in page units. It's what lets a re-calibration
   re-derive every measurement on the page. Don't drop it.
 - **XFDF is bottom-left origin and 0-based pages.** The flip needs the page height.

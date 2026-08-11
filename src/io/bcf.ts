@@ -29,7 +29,7 @@ export interface BcfTopic {
   description?: string;
   /** Reference back to the sheet the pin lives on. */
   reference_links?: string[];
-  /** BCF 3.0 allows arbitrary document references; the sheet anchor rides here. */
+  /** Kept for callers that want one; the sheet anchor itself rides in `reference_links`. */
   bim_snippet?: { snippet_type: string; is_external: boolean; reference: string; reference_schema: string };
 }
 
@@ -199,17 +199,23 @@ export function topicMarkupXml(entry: BcfExport): string {
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<Markup>`,
     `  <Topic Guid="${esc(topic.guid)}" TopicType="${esc(topic.topic_type)}" TopicStatus="${esc(topic.topic_status)}">`,
+    // BCF 2.1's Topic is an `xs:sequence`, so this order is normative rather than cosmetic: a
+    // validating reader rejects the file outright if it is wrong, and the readers that matter here
+    // — the BCF managers plugged into Revit, Navisworks, Solibri and Tekla — do validate.
+    //
+    // `ReferenceLink` first is the one that would have hurt most: it carries the sheet anchor, so a
+    // rejected file loses the thing that lets a markup re-place itself.
+    ...(topic.reference_links ?? []).map((r) => `    ${el("ReferenceLink", r)}`),
     `    ${el("Title", topic.title)}`,
     topic.priority ? `    ${el("Priority", topic.priority)}` : "",
+    ...(topic.labels ?? []).map((l) => `    ${el("Labels", l)}`),
     `    ${el("CreationDate", topic.creation_date)}`,
     `    ${el("CreationAuthor", topic.creation_author)}`,
     topic.modified_date ? `    ${el("ModifiedDate", topic.modified_date)}` : "",
-    topic.assigned_to ? `    ${el("AssignedTo", topic.assigned_to)}` : "",
+    topic.modified_author ? `    ${el("ModifiedAuthor", topic.modified_author)}` : "",
     topic.due_date ? `    ${el("DueDate", topic.due_date)}` : "",
+    topic.assigned_to ? `    ${el("AssignedTo", topic.assigned_to)}` : "",
     topic.description ? `    ${el("Description", topic.description)}` : "",
-    ...(topic.labels ?? []).map((l) => `    ${el("Labels", l)}`),
-    // The sheet anchor rides in a reference link, which is how it survives a round trip.
-    ...(topic.reference_links ?? []).map((r) => `    ${el("ReferenceLink", r)}`),
     `  </Topic>`,
     ...comments.map((c) => [
       `  <Comment Guid="${esc(c.guid)}">`,

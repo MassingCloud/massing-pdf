@@ -77,10 +77,30 @@ reason is usually specific and knowable.
 
 ### What a client-side check can and cannot promise
 
-It holds against ordinary use and against the host's own scripting, because it is not in the UI. It
-**cannot** bind someone who controls their own browser — nothing running in a user's page can. The
-server remains the authority. What this buys you is that the interface agrees with the server
-instead of offering actions the user's role forbids, and that every attempt is recorded.
+It holds for every *user action* — tool, keyboard shortcut, import, storage adapter, and host code
+calling `add`, `update`, `remove`, `setCalibration` or `setSheet`. It **cannot** bind someone who
+controls their own browser; nothing running in a user's page can. The server remains the authority.
+
+Two store methods are deliberately **not** gated, and you should know which:
+
+| | |
+|---|---|
+| `store.reset(annotations)` | replaces the entire set |
+| `store.merge(annotations)` | folds in records by version |
+
+These are the seam the *storage layer* writes through — `persistencePlugin` calls `reset` when a
+restore lands and `merge` when a colleague's change arrives over live sync. Gating them would mean a
+reviewer without an `import` capability could not receive their own saved markups back, which is not
+a permission question at all. So `viewer.store.reset([])` from host code will empty the store
+whatever the policy says.
+
+That is a real limit rather than a rounded-off one: it is local only. Neither method emits the
+`annot:added`/`updated`/`removed` events the persistence queue listens on, so nothing reaches the
+server, and the next restore repopulates. But if your threat model includes host code you do not
+control, the permission check is not what stops it — the server is.
+
+What this buys you is that the interface agrees with the server instead of offering actions the
+user's role forbids, and that every gated attempt is recorded.
 
 A check that throws is treated as a denial. A permission service being unreachable must not read as
 "allow everything".

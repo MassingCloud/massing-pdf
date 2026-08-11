@@ -271,6 +271,15 @@ export class AnnotationStore {
    * Replace the whole set — a load, or a revision migration. Annotations arriving from a store are
    * already materialised, so their ids and versions are preserved.
    */
+  /**
+   * Replace the whole set — a load, or a revision migration.
+   *
+   * **Deliberately not permission-gated.** This is the seam the storage layer writes through:
+   * `persistencePlugin` calls it when a restore lands. Gating it would mean a reviewer without an
+   * `import` capability could not receive their own saved markups back, which is not a permission
+   * question. Host code calling `viewer.store.reset([])` therefore empties the store whatever the
+   * policy says — see docs/security.md, which states that limit rather than implying otherwise.
+   */
   reset(annots: Annotation[], opts: { undoable?: boolean } = {}): void {
     const before = this.all();
     this.items.clear();
@@ -281,6 +290,12 @@ export class AnnotationStore {
   }
 
   /** Merge incoming records by id, newest `version` wins. The sync path. */
+  /**
+   * Fold in records by version — a colleague's change arriving over live sync.
+   *
+   * Ungated for the same reason as {@link reset}: receiving someone else's markup is not an act the
+   * receiving user performs.
+   */
   merge(incoming: Annotation[]): { added: number; updated: number } {
     let added = 0, updated = 0;
     for (const a of incoming) {

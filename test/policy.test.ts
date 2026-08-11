@@ -174,6 +174,39 @@ describe("permissions are enforced where the mutation happens", () => {
     expect(store.size).toBe(0);
   });
 
+  it("does not gate reset and merge, and the docs say so", () => {
+    // These are the storage seam, not user actions: persistence calls `reset` when a restore lands
+    // and `merge` when live sync delivers a colleague's change. Gating them would stop a reviewer
+    // without `import` receiving their own saved markups back.
+    //
+    // Pinned as a *test* because it is a documented limit — docs/security.md tells a host that
+    // `viewer.store.reset([])` empties the store whatever the policy says. If someone later decides
+    // to gate these, this test failing is the prompt to correct that page too.
+    const { store } = harness({ granted: [] });
+    const seeded = {
+      ...draft(), id: "an_seed", author: "B. Engineer",
+      createdAt: "2026-01-01T00:00:00Z", version: 3, status: "open",
+    } as unknown as Parameters<typeof store.reset>[0][number];
+
+    store.reset([seeded], { undoable: false });
+    expect(store.size).toBe(1);
+    store.reset([], { undoable: false });
+    expect(store.size).toBe(0);
+  });
+
+  it("keeps that limit local: neither reaches the persistence queue", () => {
+    // The reason the ungated seam is acceptable. `annot:reset` is not what the save loop listens
+    // on, so a wipe cannot propagate to the server — the next restore repopulates.
+    const { store, bus } = harness({ granted: [] });
+    const queued: string[] = [];
+    for (const e of ["annot:added", "annot:updated", "annot:removed"] as const) {
+      bus.on(e, () => queued.push(e));
+    }
+    store.reset([], { undoable: false });
+    store.merge([]);
+    expect(queued).toEqual([]);
+  });
+
   it("allows everything when no check is configured", () => {
     const { store } = harness();
     expect(store.add(draft())).toBeDefined();

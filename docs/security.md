@@ -99,6 +99,12 @@ That is a real limit rather than a rounded-off one: it is local only. Neither me
 server, and the next restore repopulates. But if your threat model includes host code you do not
 control, the permission check is not what stops it — the server is.
 
+Undo and redo also re-apply changes without going back through the check. They have to — they
+reverse acts that were already authorised when they happened. That stays sound because a refused act
+never reaches the undo stack: every refusal returns before recording one. So undo can remove a
+markup from someone holding `markup:create` but not `markup:delete`, by reversing their own
+creation, and it cannot reapply an edit the check rejected.
+
 What this buys you is that the interface agrees with the server instead of offering actions the
 user's role forbids, and that every gated attempt is recorded.
 

@@ -174,6 +174,26 @@ describe("permissions are enforced where the mutation happens", () => {
     expect(store.size).toBe(0);
   });
 
+  it("never lets a refused act reach the undo stack", () => {
+    // Undo and redo re-apply changes without going back through the gate — they have to, since
+    // they reverse acts already authorised. That is only sound while a *refused* act cannot get
+    // onto the stack, because otherwise undo becomes a second door into the change the gate just
+    // rejected. Every refusal returns before its `push`, and this pins that.
+    const { store } = harness({ granted: ["markup:create"] });
+    const a = store.add(draft({ subject: "original" }))!;
+
+    store.update(a.id, { subject: "refused" });   // no markup:edit
+    store.remove(a.id);                            // no markup:delete
+    expect(store.size).toBe(1);
+    expect(store.get(a.id)?.subject).toBe("original");
+
+    // The only entry on the stack is the authorised create, so undo reverses that and nothing else.
+    store.undo();
+    expect(store.size).toBe(0);
+    store.redo();
+    expect(store.get(a.id)?.subject).toBe("original");
+  });
+
   it("does not gate reset and merge, and the docs say so", () => {
     // These are the storage seam, not user actions: persistence calls `reset` when a restore lands
     // and `merge` when live sync delivers a colleague's change. Gating them would stop a reviewer

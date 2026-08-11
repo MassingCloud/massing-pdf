@@ -50,6 +50,10 @@ behind a plugin kernel, to be consumed back by it.
   markup endpoints and row shape, so no server change is needed to adopt it.
 - Optimistic concurrency: every write carries the version it was based on, and a 409 surfaces both
   sides of each conflicted markup rather than a generic failure.
+- `conflictsPlugin` presents the two versions for a reviewer to choose between, showing only the
+  fields that differ. Every ambiguous exit — Escape, an optional timeout, initial focus — resolves
+  to *theirs*, so a dialog dismissed unread never overwrites a colleague's edit. Replaceable: supply
+  your own `onConflict` and do not install it.
 - `markups:restored` announces when a restore has landed. Restore replaces the whole store and
   arrives well after `doc:loaded`, so anything seeding markups on open needs this or its work is
   silently overwritten.

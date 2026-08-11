@@ -277,6 +277,7 @@ Viewer (kernel)
 | `attachmentsPlugin` | photos and files pinned to a markup |
 | `sheetsPlugin` | title-block extraction, sheet register, thumbnails |
 | `persistencePlugin` | adapter wiring, debounced saves, live merge |
+| `conflictsPlugin` | the 409 dialog: both versions, side by side, reviewer chooses |
 | `exportersPlugin` | PDF / XFDF / BCF / CSV in and out |
 | `toolbarPlugin` | the default chrome — drop it and build your own |
 

@@ -146,6 +146,36 @@ Saves are debounced and coalesced per annotation id.
 never see a spinner or lose a markup because the connection dropped mid-save; they should see their
 markup immediately and a pending count until it drains.
 
+### When two people edit the same markup
+
+Every write carries the version it was based on, so the server can reject a stale one with a 409.
+`ConflictError` then carries both sides of each rejected markup rather than a generic failure, and
+`onConflictResolve` decides what happens: `theirs` (the default), `mine`, or `ask`.
+
+`theirs` is the default because re-sending over the top is precisely the last-writer-wins behaviour
+the version check exists to prevent — making the check theatre. But it silently discards the
+reviewer's edit, so `ask` is what you want with a person present:
+
+```
+409 ──► ConflictError{ mine, theirs } ──► onConflict ──► Annotation | null
+                                              │
+                                    conflictsPlugin.ask()  ← the reference dialog
+```
+
+`conflictsPlugin` implements that callback as a modal showing only the fields that differ. Answering
+`null` keeps the server's copy; returning a record rebases it onto the server's version and retries,
+so the retry carries a base the server will accept.
+
+Two decisions in it are load-bearing rather than cosmetic. **Every ambiguous exit resolves to
+theirs** — Escape, the optional timeout, and initial focus all land on the choice that destroys
+nothing, because a dialog dismissed unread must not be how a colleague's edit gets overwritten. And
+**a bodyless 409 shows no comparison at all**: diffing against a record the server never sent fills
+their column with em dashes, asserting their version has no subject and no status, which is a claim
+we do not have.
+
+It is a reference. Supplying your own `onConflict` and not installing the plugin is supported, and is
+what you want if your product has its own dialog vocabulary or needs a per-field merge.
+
 ## Interchange
 
 | Format | Fidelity | For |

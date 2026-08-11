@@ -701,6 +701,82 @@
   border: 0;
 }
 
+/* ---- conflict dialog ----------------------------------------------------- */
+
+/*
+ * Scoped inside `.mpdf-root` and positioned against it rather than the page, so a host embedding
+ * the viewer in a panel gets the dialog over the drawing rather than over their whole application.
+ */
+.mpdf-root .mpdf-conflict-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+}
+
+.mpdf-conflict {
+  width: min(520px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--mpdf-line);
+  border-radius: var(--mpdf-radius);
+  background: var(--mpdf-panel);
+  color: var(--mpdf-fg);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+.mpdf-conflict-title { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.mpdf-conflict-blurb { margin: 0 0 12px; color: var(--mpdf-muted); font-size: 13px; }
+
+.mpdf-conflict-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.mpdf-conflict-table th,
+.mpdf-conflict-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--mpdf-line);
+  text-align: left;
+  vertical-align: top;
+  /* A pasted comment can be one long unbroken string; without this it widens the dialog off-screen
+     and the buttons go with it. */
+  overflow-wrap: anywhere;
+}
+
+.mpdf-conflict-table th { color: var(--mpdf-muted); font-weight: 500; }
+.mpdf-conflict-table td:first-child { color: var(--mpdf-muted); white-space: nowrap; }
+
+.mpdf-conflict-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.mpdf-conflict-btn {
+  padding: 7px 14px;
+  border: 1px solid var(--mpdf-line);
+  border-radius: var(--mpdf-radius);
+  background: var(--mpdf-panel-2);
+  color: var(--mpdf-fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mpdf-conflict-btn:hover { border-color: var(--mpdf-accent); }
+
+.mpdf-conflict-btn.is-primary {
+  background: color-mix(in srgb, var(--mpdf-accent) 22%, transparent);
+  border-color: var(--mpdf-accent);
+}
+
 /*
  * A visible focus ring on everything reachable by keyboard.
  *

@@ -9,7 +9,8 @@
 import * as lib from "../src/index";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
-  IndexedDbAdapter, createViewer, indexedDbAvailable, type StorageAdapter, MemoryAdapter,
+  IndexedDbAdapter, conflictsPlugin, createViewer, indexedDbAvailable, type StorageAdapter,
+  MemoryAdapter,
 } from "../src/index";
 import { makeSampleSheet } from "./sample";
 
@@ -30,6 +31,10 @@ const fail = (e: unknown) => {
 // to open the document at all.
 const adapter: StorageAdapter = indexedDbAvailable() ? new IndexedDbAdapter() : new MemoryAdapter();
 
+// Held in a variable so the persistence wiring below can reach it without referring to `viewer`
+// from inside `viewer`'s own initializer — see the note at the top of `plugins/conflicts.ts`.
+const conflicts = conflictsPlugin();
+
 const viewer = await createViewer({
   container: host,
   workerUrl,
@@ -37,11 +42,17 @@ const viewer = await createViewer({
   org: "Massing",
   initialZoom: "fit-width",
   feetInches: true,
+  plugins: [conflicts],
   persistence: {
     adapter,
     // Key on the PDF's own fingerprint: reopening the same drawing brings its markups back even if
     // the file was renamed or came from a different folder.
     key: (v) => ({ documentId: v.doc?.fingerprint ?? "unknown" }),
+    // The IndexedDB adapter is single-writer and never rejects a save, so this never fires here.
+    // It is wired anyway because it is the line a host has to copy, and an example nobody runs is
+    // an example nobody can tell is wrong. `e2e/conflict.spec.ts` drives the dialog directly.
+    onConflictResolve: "ask",
+    onConflict: (c) => conflicts.ask(c),
   },
 }).catch((e) => { fail(e); throw e; });
 

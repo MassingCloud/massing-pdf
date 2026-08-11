@@ -119,7 +119,8 @@ export {
 } from "./core/a11y";
 export { sheetsPlugin, extractSheetMeta, type SheetsOptions } from "./plugins/sheets";
 export { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
-export { persistencePlugin, type PersistenceOptions } from "./plugins/persistence";
+export { persistencePlugin, type PersistenceOptions, type Conflict } from "./plugins/persistence";
+export { conflictsPlugin, type ConflictsOptions, type ConflictsPlugin } from "./plugins/conflicts";
 export { exportersPlugin, buildSet, applySet, type ExportOptions, type MarkupSet } from "./plugins/exporters";
 
 // ---- interchange -----------------------------------------------------------

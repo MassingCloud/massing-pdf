@@ -13,7 +13,7 @@ review has something honest to work from rather than a claim.
 |---|---|
 | Target | WCAG 2.1 Level AA |
 | Status | **Partially conformant.** Every panel, list and control is keyboard-operable and labelled. The drawing canvas itself is not directly navigable — see below. |
-| Verified by | `e2e/a11y.spec.ts`, run on every CI build, driving real keys against the real DOM |
+| Verified by | `e2e/a11y.spec.ts` and `e2e/conflict.spec.ts`, run on every CI build, driving real keys against the real DOM |
 | Not verified | Screen-reader output on JAWS, NVDA or VoiceOver; magnification beyond 200%; a formal third-party audit |
 
 Automated tests prove the mechanics — focus moves, Enter activates, names are present. They cannot
@@ -50,6 +50,12 @@ unusable interface; this avoids the trade.
 match, which left someone arrowing through a list with no visible focus at all. Arrow navigation
 therefore sets an explicit `data-kbd-focus` attribute, which behaves identically everywhere, and the
 ring is styled off both.
+
+**The one modal.** `conflictsPlugin`'s dialog is `role="dialog"` with `aria-modal="true"`, traps Tab
+inside itself, returns focus to whatever had it on close, and answers Escape. It also opens focused
+on **"Keep theirs"** — the choice that discards nothing — so pressing Enter on a dialog you have not
+read cannot be how a colleague's edit gets overwritten. That is a keyboard-safety decision as much
+as an accessibility one: the fastest path through a modal should never be the destructive one.
 
 **Reduced motion and forced colours.** `prefers-reduced-motion` suppresses transitions —
 vestibular disorders make a panning, zooming viewer a worst case. Windows High Contrast Mode

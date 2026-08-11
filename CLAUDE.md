@@ -34,7 +34,7 @@ src/core/      viewer (kernel) · document · renderer · textLayer · store · 
 src/render/    svg.ts — Annotation → SVG, page space
 src/plugins/   markup · measure · stamps · pins · markupList · search · specs · compare
                migration · sheets · historical · attachments · ocr · views · toolbar
-               persistence · exporters
+               persistence · conflicts · exporters
 src/adapters/  memory · indexeddb · rest · offline
 src/io/        xfdf · bcf · csv · flatten · zip
 demo/          standalone app; generates its own 3-page sample (plan, details, CSI spec section)

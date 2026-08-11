@@ -47,10 +47,22 @@ was declared on the interface and never written. Both fixed, with the order pinn
 
 Revisit 3.0 when the tools that have to read our files support it.
 
-**3. A conflict-resolution reference.** The client detects a 409, carries both sides of every
-conflicted markup, and resolves by policy. Nothing presents the two versions to a human. It is
-genuinely a host concern, but with two consumers about to build the same panel twice, one reference
-implementation in the demo is cheaper than two divergent ones.
+**3. A conflict-resolution reference.** *Done.* `conflictsPlugin()` supplies the panel the 409 path
+had no answer for: it exposes `viewer.conflicts.ask(conflict)`, which is exactly the shape
+`persistencePlugin`'s `onConflict` hook takes, so wiring it is one line. It remains a host concern —
+not installing the plugin and supplying your own `onConflict` is the supported alternative — but with
+two consumers about to build the same panel twice, one they can replace beats two that drift.
+
+Building it settled two questions the policy modes had let us avoid. **Escape and the timeout both
+resolve to *theirs*, and "Keep theirs" holds initial focus**, because every ambiguous exit should
+land on the answer that destroys nothing; a dialog dismissed unread must not be how a colleague's
+edit gets overwritten. And a **bodyless 409 shows no comparison table at all** — diffing a record
+against one the server never sent renders their column as em dashes, which asserts their version has
+no subject and no status, a claim we do not have. That was a real defect, caught by a test written
+to check the opposite.
+
+This is also the first use of `trapFocus`, which had been exported from `core/a11y.ts` and used
+nowhere.
 
 **4. Spec-parser correction path.** Parsing is heuristic and will mis-read an unconventional
 specification with no way for a user to fix it. A correction that persists — "this line is a clause
@@ -95,8 +107,8 @@ server contract, and `RestAdapter` may be the more honest place for it to surfac
 | §5 Structured markup data | Complete — every field in the spec's list, plus provenance. |
 | §6 Revision survival | Overlay compare, alignment (translation and uniform scale), diff clustering, auto-clouding, slip-sheet migration with a review queue and audit trail. |
 | §7 Specifications workspace | CSI section/clause parsing, clause tree, citation, requirement extraction, and drawing→spec callout detection with nearest-callout auto-citation. |
-| §8 Issues and tasks | Pins, status, promote-to-issue, BCF topics and `.bcfzip`. Assignee and due date round-trip but live in `ext` rather than the typed model — see planned item 1. **No** forms or daily reports. |
-| §9 Offline-first | IndexedDB working copy, durable outbound queue, optimistic concurrency — every write carries the version it was based on, and a 409 surfaces both sides. **No** conflict-resolution UI. |
+| §8 Issues and tasks | Pins, status, promote-to-issue, typed assignee and due date, BCF topics and `.bcfzip`. **No** forms or daily reports. |
+| §9 Offline-first | IndexedDB working copy, durable outbound queue, optimistic concurrency — every write carries the version it was based on, a 409 surfaces both sides, and `conflictsPlugin` presents them for a human to choose between. |
 | §10 Search | Document-wide search over sheet text, markups and the sheet register, faceted and spatially located. OCR-backed on scans when a provider is configured. |
 | §11 Historical mode | Provenance, confidence tags that visibly change how a markup reads, transcription, contrast/invert, tracing overlay. |
 | Data model / interchange | JSON, XFDF, BCF topics, `.bcfzip`, CSV, flattened PDF. **No** ICDD packaging. |
@@ -207,6 +219,7 @@ simply hangs. These assert on real pixels and real pointer events:
 | `persistence.spec.ts` | IndexedDB round-trip and isolation, survival across a reload, and the offline queue holding a markup through a network failure and draining on retry |
 | `touch.spec.ts` | pinch-zoom and its clamps, anchor stability, two-finger pan not drawing, one-finger drawing, and a gesture the browser cancels mid-way |
 | `persistence` (unit) | the save queue, and what a rejected batch does to it: requeue on failure, conflict settling by policy, and a bodyless 409 |
+| `conflict-dialog` (unit) | what the 409 dialog does when nobody makes a deliberate choice — Escape, timeout, initial focus — plus a bodyless 409 rendering no comparison, hostile server text staying text, and the whole path wired through the save queue |
 | `a11y.spec.ts` | keyboard reachability of every list, arrow/Home/End navigation, Enter and Space activation, landmarks, `aria-pressed`/`aria-selected`, live-region announcements, and a visible focus ring |
 | `ocr-bench.spec.ts` | rasterise → recognise → score, against generated ground truth. Opt-in (`--project=ocr-bench`): it fetches ~12 MB of weights, so it informs a decision rather than gating a build |
 | `csp.spec.ts` | the built demo behind a strict Content-Security-Policy with no `unsafe-eval` and no inline script — a drawing must rasterise with zero violations |
@@ -228,6 +241,6 @@ Node 20.6+, and 22 avoids the edge entirely.
 
 - **Tilt and barrel-rotation.** Pressure is captured and palm rejection works; tilt is read from the
   pointer event but nothing consumes it yet, and no renderer varies stroke width along a stroke.
-- **Conflict-resolution UI.** The client detects a 409, carries both sides of every conflicted
-  markup and resolves by policy (`theirs` by default). Presenting the two versions and letting a
-  reviewer choose is a host concern this library only supplies the data for.
+- **Conflict resolution beyond choosing a side.** `conflictsPlugin` presents both versions and takes
+  a whole-record answer. It does not offer a per-field merge — "their status, my comment" — which is
+  the next thing a reviewer asks for once they can see the two side by side.

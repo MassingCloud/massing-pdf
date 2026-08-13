@@ -27,22 +27,12 @@ const HEADING = "SECTION 07 84 00 - FIRESTOPPING";
 async function openInspector(page: Page): Promise<void> {
   await page.evaluate(() => window.viewer.specs!.load());
   await page.getByRole("button", { name: "Fix parsing", exact: true }).click();
-  // Zoom until the spec page is taller than the viewport before scrolling to it.
-  //
-  // The current page is whichever has the most viewport *overlap in pixels*, and the sample's spec
-  // page is both the last page and much shorter than the drawing sheets (310px against 677px at
-  // fit-width). Since scrollTop clamps at the end of the document, page 2 still occupies more of an
-  // 899px viewport than page 3 can — so at fit-width page 3 can never become current, however you
-  // scroll. That is a real defect in `updateVisible`, recorded in docs/roadmap.md; this works
-  // around it so the test measures the panel rather than that bug.
-  await page.evaluate(async (n) => {
-    const s = window.viewer.el.scroll;
-    for (let i = 0; i < 8; i++) {
-      const wrap = document.querySelector<HTMLElement>(`.mpdf-page-wrap[data-page="${n}"]`);
-      if (wrap && wrap.offsetHeight > s.clientHeight * 1.2) break;
-      await window.viewer.setZoom(window.viewer.zoom * 1.5);
-    }
+  // The spec page is the last one and shorter than the drawing sheets, so scrolling to it means
+  // scrolling to the end of the document — see the "at the end of the scroll" case in
+  // `updateVisible`, which is what makes it reachable as the current page at all.
+  await page.evaluate((n) => {
     const wrap = document.querySelector<HTMLElement>(`.mpdf-page-wrap[data-page="${n}"]`);
+    const s = window.viewer.el.scroll;
     if (wrap) s.scrollTop = wrap.offsetTop + wrap.offsetHeight / 2 - s.clientHeight / 2;
   }, SPEC_PAGE);
   // Auto-retries, and the panel re-renders on `page:changed`, so this settles with the scroll.

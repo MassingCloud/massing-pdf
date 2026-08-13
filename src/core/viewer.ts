@@ -499,6 +499,7 @@ export class Viewer {
     const s = this.el.scroll;
     const top = s.scrollTop, bottom = top + s.clientHeight;
     let best: { page: number; overlap: number } | null = null;
+    let lastOnScreen = 0;
     for (const layer of this.layers.values()) {
       const y0 = layer.wrap.offsetTop, y1 = y0 + layer.wrap.offsetHeight;
       const overlap = Math.min(bottom, y1) - Math.max(top, y0);
@@ -508,6 +509,7 @@ export class Viewer {
         continue;
       }
       if (!best || overlap > best.overlap) best = { page: layer.page, overlap };
+      if (layer.page > lastOnScreen) lastOnScreen = layer.page;
       void layer.view.update({
         x: Math.max(0, s.scrollLeft - layer.wrap.offsetLeft),
         y: Math.max(0, top - y0),
@@ -515,9 +517,30 @@ export class Viewer {
         h: s.clientHeight,
       }).catch((e: unknown) => console.warn(`[massing-pdf] page ${layer.page} raster failed`, e));
     }
-    if (best && best.page !== this._page) {
-      this._page = best.page;
-      this.bus.emit("page:changed", { page: best.page });
+
+    /*
+     * Greatest overlap decides the current page — except at the very end of the scroll, where that
+     * answer can be unreachable.
+     *
+     * `scrollTop` clamps at the bottom of the document, so a last page shorter than the viewport
+     * never accumulates more overlap than the page above it, and can never become current however
+     * far you scroll. Measured on a three-page sample: viewport 899px, max scroll 830px, page 2
+     * showing 556px against page 3's 310px. That is exactly the shape of a specification section
+     * bound at the end of a drawing set — scroll to it and every panel keyed to the current page
+     * describes the sheet above the one you are looking at.
+     *
+     * Deliberately narrow. Scoring by visible *fraction* instead would fix this case and break the
+     * opposite one, letting a small page fully in view steal the current page from a large sheet
+     * filling the screen. When there is no more scrolling to do there is no such ambiguity: the
+     * last page on screen is the one you are at.
+     */
+    const scrollable = s.scrollHeight - s.clientHeight;
+    const atEnd = scrollable > 0 && top >= scrollable - 1;
+    const page = atEnd && lastOnScreen ? lastOnScreen : best?.page;
+
+    if (page && page !== this._page) {
+      this._page = page;
+      this.bus.emit("page:changed", { page });
     }
   }
 

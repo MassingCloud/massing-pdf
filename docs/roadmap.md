@@ -104,27 +104,6 @@ Three things worth recording:
 - **Persistence is the host's.** `corrections` loads them and `onCorrect` receives the whole set
   after any change, so storing is one write of one array rather than a diff to apply.
 
-## Found, not yet fixed
-
-**A short last page can never become the current page.** `updateVisible` picks whichever page has
-the greatest viewport overlap *in pixels*. `scrollTop` clamps at the end of the document, so if the
-last page is shorter than the viewport, the page above it keeps the larger overlap no matter how far
-you scroll. Measured on the demo sample at fit-width: viewport 899px, max scroll 830px, page 2
-showing 556px against page 3's 310px — page 3 is unreachable as "current".
-
-It surfaced while writing `e2e/specs-correction.spec.ts`, which needs the spec page current, and it
-bites exactly where it hurts most: a spec section bound at the end of a drawing set is short and
-last, so scrolling to it leaves the specs panel describing the sheet above it. Anything keyed to the
-current page — the page indicator, the line inspector, per-page takeoff — reads the wrong page.
-
-Fixing it properly means deciding what "current" should mean when a page is fully visible but small.
-Pure pixel overlap is wrong here; pure visible-fraction is wrong the other way, since a tiny page
-peeking in fully would steal focus from the sheet being read. Probably: prefer a page that is
-*entirely* within the viewport, and fall back to overlap. That is a behaviour change touching the
-page indicator and several tests, so it wants doing deliberately rather than folded into a test fix.
-
-The e2e spec zooms in to work around it, and says so.
-
 ## Then — what the category expects and we lack
 
 Larger, and worth arguing before starting.

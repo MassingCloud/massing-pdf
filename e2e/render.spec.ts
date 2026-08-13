@@ -165,3 +165,57 @@ test.describe("view state", () => {
     expect(await visible()).not.toBe("none");
   });
 });
+
+/**
+ * Which page is "current" when you reach the end of the document.
+ *
+ * Greatest viewport overlap decides it, and that answer used to be unreachable for a short last
+ * page: `scrollTop` clamps at the bottom, so a final page shorter than the viewport never
+ * accumulates more overlap than the page above it. Measured on this sample at fit-width — viewport
+ * 899px, max scroll 830px, page 2 showing 556px against page 3's 310px — page 3 could not become
+ * current however far you scrolled.
+ *
+ * It matters because that is the shape of a specification section bound at the end of a drawing
+ * set: everything keyed to the current page described the sheet above the one on screen.
+ */
+test.describe("current page at the end of the scroll", () => {
+  test("the short last page becomes current when scrolled to the bottom", async ({ page }) => {
+    await openSample(page);
+    await waitForRender(page, 1);
+
+    const geometry = await page.evaluate(() => {
+      const s = window.viewer.el.scroll;
+      const wraps = [...document.querySelectorAll<HTMLElement>(".mpdf-page-wrap")];
+      const last = wraps[wraps.length - 1]!;
+      return {
+        viewport: s.clientHeight,
+        lastHeight: last.offsetHeight,
+        pages: wraps.length,
+      };
+    });
+    // The test only means anything while the last page is shorter than the viewport — otherwise it
+    // would pass under the old rule too.
+    expect(geometry.lastHeight).toBeLessThan(geometry.viewport);
+
+    await page.evaluate(() => {
+      const s = window.viewer.el.scroll;
+      s.scrollTop = s.scrollHeight;
+    });
+
+    await expect.poll(() => page.evaluate(() => window.viewer.page), { timeout: 5_000 })
+      .toBe(geometry.pages);
+  });
+
+  test("a page filling the viewport keeps the current page mid-document", async ({ page }) => {
+    await openSample(page);
+    await waitForRender(page, 1);
+
+    // Guards the other direction: the end-of-scroll rule must not apply anywhere but the end, or a
+    // small page fully in view would steal the current page from the sheet being read.
+    await page.evaluate(() => {
+      const wrap = document.querySelector<HTMLElement>('.mpdf-page-wrap[data-page="2"]')!;
+      window.viewer.el.scroll.scrollTop = wrap.offsetTop;
+    });
+    await expect.poll(() => page.evaluate(() => window.viewer.page), { timeout: 5_000 }).toBe(2);
+  });
+});

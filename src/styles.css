@@ -107,7 +107,17 @@
 .mpdf-side-left { border-right: 1px solid var(--mpdf-line); }
 .mpdf-side-right { border-left: 1px solid var(--mpdf-line); }
 
-.mpdf-panel { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+/*
+ * `flex: 0 0 auto` — a panel keeps its content height and the rail scrolls, which is what
+ * `.mpdf-side`'s `overflow-y: auto` is for.
+ *
+ * The flex default is `0 1 auto`, and that `flex-shrink: 1` is the bug: once the panels together
+ * exceed the rail, flexbox squeezes each one *below its content* rather than letting the rail
+ * scroll. A panel body has no overflow of its own, so the remainder does not clip or scroll — it
+ * paints straight over the next panel's title. It reads as garbled text rather than as a layout
+ * fault, which is why it survived: "SPECIFICATIONS" sitting on top of the tool chest's chips.
+ */
+.mpdf-panel { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 0 0 auto; }
 .mpdf-panel-title {
   font-size: 11px;
   font-weight: 700;
@@ -260,7 +270,12 @@
 .mpdf-chip-clear { border-style: dashed; }
 
 .mpdf-list-summary { color: var(--mpdf-muted); font-size: 11px; }
-.mpdf-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+/*
+ * Capped so a list scrolls inside its panel instead of making the rail arbitrarily tall — a spec
+ * book has thousands of clauses and a sheet index hundreds of sheets. The cap is what lets panels
+ * stop shrinking (see `.mpdf-panel`) without the last panel ending up a scroll away.
+ */
+.mpdf-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; max-height: 42vh; }
 .mpdf-list-group {
   margin-top: 8px;
   padding-bottom: 2px;
@@ -700,6 +715,31 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* ---- spec line inspector ------------------------------------------------- */
+
+.mpdf-spec-line {
+  display: grid;
+  grid-template-columns: minmax(48px, auto) 1fr minmax(96px, auto);
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--mpdf-line);
+  font-size: 12px;
+}
+
+/* A corrected line is marked, so a session's worth of fixes is visible at a glance. */
+.mpdf-spec-line[data-corrected="true"] {
+  background: color-mix(in srgb, var(--mpdf-accent) 12%, transparent);
+}
+
+.mpdf-spec-line-text {
+  color: var(--mpdf-fg);
+  /* Spec lines are long and a panel is narrow; wrapping beats a horizontal scrollbar per row. */
+  overflow-wrap: anywhere;
+}
+
+.mpdf-spec-line-as { padding: 2px 4px; font-size: 11px; }
 
 /* ---- conflict dialog ----------------------------------------------------- */
 

@@ -31,6 +31,8 @@ export interface SpecSection {
   number: string;
   title: string;
   page: number;
+  /** Where the heading line sits. Absent on host-supplied sections, which have no line. */
+  box?: Box;
   /** Division number derived from the section, e.g. `07`. */
   division: string;
   clauses: SpecClause[];
@@ -53,6 +55,21 @@ export interface SpecsOptions {
   side?: "left" | "right";
   /** Skip parsing entirely (this document is a drawing set, not a spec book). */
   parse?: boolean;
+  /**
+   * Corrections a user made previously. Without this they last only as long as the session, which
+   * makes fixing a mis-parsed spec book a chore somebody has to repeat on every reload.
+   *
+   * The library does not choose where these live — a host that already stores project settings
+   * should keep them next to those, keyed by document.
+   */
+  corrections?: (viewer: Viewer) => Promise<SpecCorrection[]> | SpecCorrection[];
+  /**
+   * Called with the *whole* set after any change, so persisting is one write of one array rather
+   * than a diff the host has to apply.
+   */
+  onCorrect?: (corrections: SpecCorrection[], viewer: Viewer) => void | Promise<void>;
+  /** Prompt for free text. Defaults to `window.prompt`. */
+  promptText?: (title: string, initial?: string) => Promise<string | null>;
 }
 
 // `SECTION 07 84 00 — FIRESTOPPING`, `07 84 00 FIRESTOPPING`, `078400 FIRESTOPPING`
@@ -108,6 +125,76 @@ async function pageLines(viewer: Viewer, page: number): Promise<{ text: string; 
 export interface SpecLine { text: string; box: Box; page: number }
 
 /**
+ * A human overriding the parser on one line.
+ *
+ * The heuristics below are forgiving on purpose, and forgiving means wrong sometimes. Without a way
+ * to say so, a spec book whose headings do not match — an office that writes `SECTION 078400`, a
+ * scan whose OCR drops the spaces — is not a nuisance but a dead end: you cannot navigate to a
+ * section the parser never found.
+ *
+ * A correction is addressed by page and line *text* rather than by index or coordinates. Text is
+ * what the person actually pointed at, and it survives what an index does not — re-parsing, a
+ * different zoom, OCR re-running with different boxes. It does not survive the text itself changing,
+ * which is the honest limit: a correction made against one OCR pass may not apply to the next.
+ */
+export interface SpecCorrection {
+  page: number;
+  /** The line's text as the parser saw it. Matched whitespace-normalised and case-insensitively. */
+  text: string;
+  /** What the line really is. `none` drops a false positive. */
+  as: "section" | "clause" | "none";
+  /** For `section` — the CSI number, when the line does not yield one (`07 84 00`). */
+  number?: string;
+  /** For `section` — the title, when the line does not yield one. */
+  title?: string;
+  /** For `clause` — PART = 0, article = 1, paragraph = 2, subparagraph = 3. Defaults to 1. */
+  depth?: number;
+  /** For `clause` — the dotted ref, when it should not be read off the line. */
+  ref?: string;
+}
+
+/** The key a correction is matched on. Whitespace-normalised and lowercased. */
+const correctionKey = (page: number, text: string): string =>
+  `${page}:${text.replace(/\s+/g, " ").trim().toLowerCase()}`;
+
+/** `07 84 00` out of `SECTION 078400 — FIRESTOPPING`, more leniently than `SECTION_HEADING`. */
+function looseSectionNumber(text: string): string | undefined {
+  const m = /(\d{2})\s?(\d{2})\s?(\d{2}(?:\.\d{2})?)/.exec(text);
+  return m ? `${m[1]} ${m[2]} ${m[3]}` : undefined;
+}
+
+/**
+ * A ref for a clause the parser did not recognise as one.
+ *
+ * Prefers whatever the line declares: a correction almost always means "this *is* an article",
+ * not "this article is numbered differently than it says". Only when the line carries no number at
+ * all does this fall back to position, which at least keeps refs unique and ordered.
+ */
+function forcedRef(depth: number, text: string, section: SpecSection, article: string): string {
+  const sibling = (d: number) => section.clauses.filter((c) => c.depth === d).length + 1;
+  if (depth === 0) {
+    const m = /^PART\s+(\d)/i.exec(text);
+    return `PART ${m?.[1] ?? sibling(0)}`;
+  }
+  if (depth === 1) {
+    const m = /^(\d{1,2})\.(\d{1,2})/.exec(text);
+    return m ? `${m[1]}.${m[2]}` : `${section.clauses.filter((c) => c.depth === 0).length || 1}.${sibling(1)}`;
+  }
+  const parent = section.clauses.filter((c) => c.depth === depth - 1).pop();
+  // A paragraph under no article, or a subparagraph under no paragraph, has nothing to extend. The
+  // ref still has to be unique, so it stands alone rather than being silently dropped.
+  const base = depth === 2 ? article || parent?.ref : parent?.ref;
+  if (depth === 2) {
+    const m = /^([A-Z])[.)]/.exec(text);
+    const letter = m?.[1] ?? String.fromCharCode(64 + Math.min(sibling(2), 26));
+    return base ? `${base}.${letter}` : letter;
+  }
+  const m = /^(\d{1,2})[.)]/.exec(text);
+  const n = m?.[1] ?? String(sibling(3));
+  return base ? `${base}.${n}` : n;
+}
+
+/**
  * Parse spec lines into sections and clauses.
  *
  * Deliberately heuristic and forgiving: spec formatting varies enough between offices that anything
@@ -115,14 +202,63 @@ export interface SpecLine { text: string; box: Box; page: number }
  * returned — being able to jump to `07 84 00` is most of the value even without clause anchors.
  *
  * Kept free of pdf.js so the heuristics can be exercised directly against sample text.
+ *
+ * `corrections` override the heuristics line by line. They are applied *before* the length and
+ * emptiness guards, so a person can classify a line the parser would not have looked at — which is
+ * most of the point, since the lines that need correcting are the ones it got wrong.
  */
-export function parseSpecLines(lines: readonly SpecLine[]): SpecSection[] {
+export function parseSpecLines(
+  lines: readonly SpecLine[],
+  corrections: readonly SpecCorrection[] = [],
+): SpecSection[] {
   const sections: SpecSection[] = [];
   let current: SpecSection | null = null;
   let article = "";
 
+  const overrides = new Map<string, SpecCorrection>();
+  for (const c of corrections) overrides.set(correctionKey(c.page, c.text), c);
+
   for (const line of lines) {
     const { text, page } = line;
+
+    const override = overrides.size ? overrides.get(correctionKey(page, text)) : undefined;
+    if (override) {
+      if (override.as === "none") continue;
+      if (override.as === "section") {
+        const number = override.number ?? looseSectionNumber(text);
+        // Without a number there is no section to address, and inventing one would put an entry in
+        // the register that no drawing can ever cite. Fall through to the heuristics instead.
+        if (number) {
+          current = {
+            number,
+            // Strip positionally rather than by building a pattern out of the number: a RegExp
+            // compiled from record data is an injection waiting to happen, and `String.replace`
+            // with a string argument matches literally, so the escaped form would never match.
+            title: (override.title ?? text
+              .replace(/^\s*SECTION\s+/i, "")
+              .replace(/^[\d\s.]+/, "")
+              .replace(/^[-–—:]\s*/, "")
+              .trim()) || number,
+            page,
+            box: line.box,
+            division: number.slice(0, 2),
+            clauses: [],
+          };
+          sections.push(current);
+          article = "";
+          continue;
+        }
+      } else if (current) {
+        const depth = Math.min(Math.max(override.depth ?? 1, 0), 3);
+        const ref = override.ref ?? forcedRef(depth, text, current, article);
+        if (depth === 1) article = ref;
+        current.clauses.push({ ref, depth, text: text.trim(), page, box: line.box });
+        continue;
+      }
+      // A clause correction before any section has been found has nowhere to attach. Falling
+      // through lets the heuristics still see the line rather than dropping it silently.
+    }
+
     if (!text || text.length > 220) continue;
 
     const sec = SECTION_HEADING.exec(text);
@@ -133,6 +269,7 @@ export function parseSpecLines(lines: readonly SpecLine[]): SpecSection[] {
         number,
         title: sec[4].trim().replace(/\.+$/, ""),
         page,
+        box: line.box,
         division: sec[1]!,
         clauses: [],
       };
@@ -177,11 +314,18 @@ export function parseSpecLines(lines: readonly SpecLine[]): SpecSection[] {
   return sections;
 }
 
-/** Read a spec book out of the open document and parse it. */
-export async function parseSpecs(
+/**
+ * Read every line of the open document, in order.
+ *
+ * Separate from {@link parseSpecs} because reading is the expensive half — it pulls text for every
+ * page — while parsing is pure and instant. Holding the lines lets a correction re-parse the whole
+ * book immediately instead of re-reading it, which is the difference between a correction that
+ * feels like an edit and one that feels like a rebuild.
+ */
+export async function readSpecLines(
   viewer: Viewer,
   onProgress?: (page: number, total: number) => void,
-): Promise<SpecSection[]> {
+): Promise<SpecLine[]> {
   const lines: SpecLine[] = [];
   for (let page = 1; page <= viewer.numPages; page++) {
     onProgress?.(page, viewer.numPages);
@@ -189,7 +333,16 @@ export async function parseSpecs(
       lines.push({ ...line, page });
     }
   }
-  return parseSpecLines(lines);
+  return lines;
+}
+
+/** Read a spec book out of the open document and parse it. */
+export async function parseSpecs(
+  viewer: Viewer,
+  onProgress?: (page: number, total: number) => void,
+  corrections?: readonly SpecCorrection[],
+): Promise<SpecSection[]> {
+  return parseSpecLines(await readSpecLines(viewer, onProgress), corrections);
 }
 
 /** A mention of a spec section found on a drawing sheet. */
@@ -298,16 +451,23 @@ export function specsPlugin(options: SpecsOptions = {}) {
       let references: SpecReference[] = [];
       let parsed = false;
       let parsing = false;
+      let corrections: SpecCorrection[] = [];
+      /** The raw lines the parse came from, so a correction re-parses instead of re-reading. */
+      let lines: SpecLine[] = [];
 
       const load = async (v: Viewer): Promise<SpecSection[]> => {
         if (parsed || parsing) return sections;
         parsing = true;
         try {
+          corrections = options.corrections ? [...await options.corrections(v)] : corrections;
           if (options.sections) {
+            // Host-supplied sections are the host's parse, not ours — correcting ours would be
+            // correcting something nobody is looking at.
             sections = await options.sections(v);
           } else if (options.parse !== false && v.doc) {
             v.bus.emit("notice", { level: "info", message: "Reading specification sections…" });
-            sections = await parseSpecs(v);
+            lines = await readSpecLines(v);
+            sections = parseSpecLines(lines, corrections);
           }
           parsed = true;
           // Once sections are known, look for callouts naming them on the drawing sheets.
@@ -329,11 +489,32 @@ export function specsPlugin(options: SpecsOptions = {}) {
         return sections;
       };
 
-      ctx.bus.on("doc:loaded", () => { sections = []; references = []; parsed = false; });
+      /**
+       * Re-parse from the cached lines after a correction.
+       *
+       * Deliberately does not re-scan the drawings for callouts. Rescuing a section heading changes
+       * which sections are *known*, so a callout that was ignored as a stray six-digit number may
+       * now be real — but re-scanning every sheet on each keystroke of a correction session would
+       * make the panel unusable. References catch up on the next document load; the register, which
+       * is what the correction was for, updates immediately.
+       */
+      const reparse = async (v: Viewer): Promise<void> => {
+        if (options.sections) return;
+        sections = parseSpecLines(lines, corrections);
+        await options.onCorrect?.(corrections, v);
+        v.redraw();
+      };
+
+      ctx.bus.on("doc:loaded", () => {
+        sections = []; references = []; lines = []; corrections = []; parsed = false;
+      });
 
       ctx.registerPanel({
         id: "specs", title: "Specifications", side: options.side ?? "left", order: 40,
-        mount: (host, v) => mountSpecs(host, v, () => sections, () => references, () => load(v)),
+        mount: (host, v) => mountSpecs(
+          host, v, () => sections, () => references, () => load(v),
+          options.promptText ?? ((title, initial) => Promise.resolve(window.prompt(title, initial ?? ""))),
+        ),
       });
 
       /**
@@ -386,6 +567,24 @@ export function specsPlugin(options: SpecsOptions = {}) {
         references: () => references,
         load: () => load(ctx.viewer),
         requirements: () => extractRequirements(sections),
+        lines: (page?: number) => (page === undefined ? lines : lines.filter((l) => l.page === page)),
+        corrections: () => corrections,
+        async correct(correction: SpecCorrection) {
+          // Replace rather than append: one line has one classification, and a growing pile of
+          // superseded entries is a persistence bug waiting to happen on the host's side.
+          const key = correctionKey(correction.page, correction.text);
+          corrections = corrections.filter((c) => correctionKey(c.page, c.text) !== key);
+          corrections.push(correction);
+          await reparse(ctx.viewer);
+        },
+        async uncorrect(page: number, text: string) {
+          const key = correctionKey(page, text);
+          const before = corrections.length;
+          corrections = corrections.filter((c) => correctionKey(c.page, c.text) !== key);
+          if (corrections.length === before) return false;
+          await reparse(ctx.viewer);
+          return true;
+        },
         /** Cite a clause on a markup — the link that makes a spec reference navigable. */
         cite(annotId: string, section: string, clause?: string) {
           const a = ctx.store.get(annotId);
@@ -406,6 +605,7 @@ function mountSpecs(
   get: () => SpecSection[],
   getRefs: () => SpecReference[],
   load: () => Promise<SpecSection[]>,
+  ask: (title: string, initial?: string) => Promise<string | null>,
 ): () => void {
   const search = document.createElement("input");
   search.type = "search";
@@ -414,9 +614,11 @@ function mountSpecs(
 
   const tabs = document.createElement("div");
   tabs.className = "mpdf-chip-group";
-  let mode: "sections" | "requirements" = "sections";
+  let mode: "sections" | "requirements" | "lines" = "sections";
   const tabBtns: Record<string, HTMLButtonElement> = {};
-  for (const [key, label] of [["sections", "Sections"], ["requirements", "Requirements"]] as const) {
+  for (const [key, label] of [
+    ["sections", "Sections"], ["requirements", "Requirements"], ["lines", "Fix parsing"],
+  ] as const) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "mpdf-chip" + (key === mode ? " is-on" : "");
@@ -452,7 +654,122 @@ function mountSpecs(
     }
   };
 
+  /** Identify a line by where it sits, which is exact — clause text is stripped of its ref. */
+  const boxKey = (page: number, box: Box) => `${page}:${Math.round(box.x)}:${Math.round(box.y)}`;
+
+  const DEPTHS: [string, string][] = [
+    ["clause:0", "PART"], ["clause:1", "Article (1.1)"],
+    ["clause:2", "Paragraph (A.)"], ["clause:3", "Subparagraph (1.)"],
+  ];
+
+  /**
+   * What the parser saw on this page, and a control to overrule it.
+   *
+   * Scoped to one page because that is where the person already is when they notice the parse is
+   * wrong, and because a spec book is tens of thousands of lines — a flat list of all of them is
+   * not something anyone can find a heading in.
+   */
+  const renderLines = () => {
+    body.innerHTML = "";
+    const api = v.specs;
+    const all = api?.lines() ?? [];
+    if (!all.length) {
+      empty("Nothing read yet. Read the sections first, then come back to fix whatever the parser got wrong.", true);
+      return;
+    }
+
+    const page = v.page;
+    const onPage = all.filter((l) => l.page === page);
+
+    const head = document.createElement("p");
+    head.className = "mpdf-empty";
+    head.textContent = onPage.length
+      ? `Page ${page}: ${onPage.length} line${onPage.length === 1 ? "" : "s"}. Changing one updates the register immediately.`
+      : `No text read on page ${page}. Turn to a page of the specification.`;
+    body.appendChild(head);
+    if (!onPage.length) return;
+
+    // What the current parse made of each line, matched by position: a clause's `text` has its ref
+    // stripped, so it cannot be compared against the raw line.
+    const decided = new Map<string, string>();
+    for (const s of get()) {
+      if (s.box && s.page === page) decided.set(boxKey(s.page, s.box), `§ ${s.number}`);
+      for (const c of s.clauses) if (c.page === page) decided.set(boxKey(c.page, c.box), c.ref);
+    }
+    const corrected = new Map(api!.corrections().map((c) => [correctionKey(c.page, c.text), c]));
+
+    for (const line of onPage) {
+      const row = document.createElement("div");
+      row.className = "mpdf-spec-line";
+
+      const badge = document.createElement("span");
+      badge.className = "mpdf-spec-ref";
+      badge.textContent = decided.get(boxKey(line.page, line.box)) ?? "—";
+
+      const txt = document.createElement("span");
+      txt.className = "mpdf-spec-line-text";
+      txt.textContent = line.text;
+
+      const override = corrected.get(correctionKey(line.page, line.text));
+      const current = !override ? ""
+        : override.as === "clause" ? `clause:${override.depth ?? 1}`
+          : override.as;
+
+      const select = document.createElement("select");
+      select.className = "mpdf-input mpdf-spec-line-as";
+      // A plain tab stop rather than a roving one: roving works by taking children out of the tab
+      // order and moving between them with arrows, and arrows inside a `<select>` already mean
+      // "change the value". This is a form, and forms are tabbed through.
+      select.setAttribute("aria-label", `What is this line: ${line.text}`);
+      for (const [value, label] of [["", "Auto"], ["section", "Section heading"], ...DEPTHS, ["none", "Not a heading"]] as [string, string][]) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        if (value === current) opt.selected = true;
+        select.appendChild(opt);
+      }
+      if (override) row.dataset.corrected = "true";
+
+      select.onchange = () => { void applyChoice(line, select.value, current); };
+      row.append(badge, txt, select);
+      body.appendChild(row);
+    }
+  };
+
+  /** Turn a choice from the dropdown into a correction, then re-render so the badges catch up. */
+  const applyChoice = async (line: SpecLine, choice: string, previous: string): Promise<void> => {
+    const api = v.specs;
+    if (!api) return;
+    const at = { page: line.page, text: line.text };
+    if (!choice) {
+      await api.uncorrect(line.page, line.text);
+    } else if (choice === "none") {
+      await api.correct({ ...at, as: "none" });
+    } else if (choice === "section") {
+      let number = looseSectionNumber(line.text);
+      if (!number) {
+        // The line carries no readable number, so there is nothing to address the section by and
+        // guessing would put an entry in the register that no drawing can cite.
+        const typed = await ask("CSI section number for this line (e.g. 07 84 00)", "");
+        number = typed ? looseSectionNumber(typed) : undefined;
+        if (!number) {
+          v.bus.emit("notice", { level: "warn", message: "A section needs a CSI number like 07 84 00." });
+          renderLines();
+          return;
+        }
+      }
+      await api.correct({ ...at, as: "section", number });
+    } else {
+      await api.correct({ ...at, as: "clause", depth: Number(choice.split(":")[1]) });
+    }
+    if (choice !== previous) {
+      v.bus.emit("notice", { level: "success", message: `Re-read page ${line.page}; ${get().length} section${get().length === 1 ? "" : "s"} now.` });
+    }
+    renderLines();
+  };
+
   const render = () => {
+    if (mode === "lines") { renderLines(); return; }
     const sections = get();
     if (!sections.length) {
       empty("No sections read yet. Specs are parsed on demand — a 900-page book is not something to index before anyone asks.", true);
@@ -576,7 +893,12 @@ function mountSpecs(
   };
 
   search.oninput = render;
-  const offs = [v.on("doc:loaded", render), v.on("annot:selected", () => { /* cite button state is read live */ })];
+  const offs = [
+    v.on("doc:loaded", render),
+    v.on("annot:selected", () => { /* cite button state is read live */ }),
+    // The line inspector shows one page, so turning the page has to redraw it.
+    v.on("page:changed", () => { if (mode === "lines") renderLines(); }),
+  ];
   render();
   const stopRoving = rovingFocus(body, '[role="button"]');
   return () => { offs.forEach((off) => off()); stopRoving(); };
@@ -591,6 +913,14 @@ declare module "../core/viewer" {
       load(): Promise<SpecSection[]>;
       requirements(): SpecRequirement[];
       cite(annotId: string, section: string, clause?: string): boolean;
+      /** Every line the parser read, or just one page's — what a correction points at. */
+      lines(page?: number): SpecLine[];
+      /** Corrections currently in force. */
+      corrections(): SpecCorrection[];
+      /** Classify one line, replacing any previous correction on it, and re-parse. */
+      correct(correction: SpecCorrection): Promise<void>;
+      /** Drop the correction on a line, returning `false` if there was none. Re-parses. */
+      uncorrect(page: number, text: string): Promise<boolean>;
     };
   }
 }

@@ -38,6 +38,11 @@ behind a plugin kernel, to be consumed back by it.
   measurement on the page rather than invalidating them.
 - Issue pins following the BCF model, revision compare with slip-sheet migration, specification
   parsing with reference matching, stamps, attachments and saved views.
+- Specification parsing is correctable per line. The "Fix parsing" tab lists what the parser made of
+  every line on the page and lets a reviewer overrule it, which matters most for a missed *section
+  heading* — a section that was never found cannot be navigated to at all. Corrections are addressed
+  by page and line text so they survive a re-parse, and re-parse from held lines rather than
+  re-reading the book. `corrections` / `onCorrect` hand persistence to the host.
 
 ### Interchange
 
@@ -96,9 +101,9 @@ behind a plugin kernel, to be consumed back by it.
 ### Known limitations
 
 Recorded in [docs/roadmap.md](docs/roadmap.md): the text layer switches off under view rotation,
-specification parsing is heuristic with no manual-correction path, the ZIP writer stores rather than
-deflates, and BCF viewpoints are omitted because a sheet markup has no 3D camera and inventing one
-would put a wrong number into a file other tools trust.
+specification parsing is heuristic (correctable per line, but still heuristic first), the ZIP writer
+stores rather than deflates, and BCF viewpoints are omitted because a sheet markup has no 3D camera
+and inventing one would put a wrong number into a file other tools trust.
 
 `pdfjs-dist` is tested against the `6.1.x` line. From 6.2, pdf.js requires Node 22+ and raises the
 browser floor to Chrome 122+, Firefox 131+ and Safari 18.4+ — see

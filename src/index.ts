@@ -85,10 +85,10 @@ export {
 export { searchPlugin, findInWords, type SearchOptions, type SearchHit, type HitSource } from "./plugins/search";
 export { viewsPlugin, applyView, type ViewsOptions } from "./plugins/views";
 export {
-  specsPlugin, parseSpecs, parseSpecLines, extractRequirements,
+  specsPlugin, parseSpecs, parseSpecLines, readSpecLines, extractRequirements,
   findSpecReferences, scanSpecReferences,
   type SpecsOptions, type SpecSection, type SpecClause, type SpecLine, type SpecRequirement,
-  type SpecReference,
+  type SpecReference, type SpecCorrection,
 } from "./plugins/specs";
 export {
   historicalPlugin, CONFIDENCE_LEVELS,

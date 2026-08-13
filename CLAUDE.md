@@ -118,6 +118,13 @@ npm run demo:build standalone demo → dist-demo/
   `remove`/`setCalibration`/`setSheet`, because a check in the UI is bypassed by a host script, an
   import or an adapter. `store.add()` returns `undefined` when refused — callers must handle it;
   `viewer.addAnnotation()` throws instead, being the host-facing entry point.
+- **A side panel must not shrink.** `.mpdf-side` is a flex column with `overflow-y: auto`, but flex
+  children default to `flex-shrink: 1` — so once the panels together exceed the rail, flexbox
+  squeezes each one *below its content* instead of letting the rail scroll, and a panel body has no
+  overflow of its own, so the remainder paints straight over the next panel's title. It reads as
+  garbled text rather than as a layout fault, which is why it survived a long time. `.mpdf-panel` is
+  pinned `flex: 0 0 auto` and `.mpdf-list` capped at `42vh` so long lists scroll inside their panel.
+  Adding a panel or a chip row is what pushes the rail over the edge.
 - **Any clickable element must go through `activate()`** from `core/a11y.ts`. A `div` with an
   `onclick` is unreachable by keyboard and silent to a screen reader, and it is the default thing to
   write. `e2e/a11y.spec.ts` drives real keys and will catch it.

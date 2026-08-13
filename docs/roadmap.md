@@ -64,9 +64,26 @@ to check the opposite.
 This is also the first use of `trapFocus`, which had been exported from `core/a11y.ts` and used
 nowhere.
 
-**4. Spec-parser correction path.** Parsing is heuristic and will mis-read an unconventional
-specification with no way for a user to fix it. A correction that persists — "this line is a clause
-heading, that one is not" — turns a wrong parse from a dead end into a nuisance.
+**4. Spec-parser correction path.** *Done.* The specs panel has a third tab, "Fix parsing", listing
+every line the parser read on the current page with what it made of each — `§ 07 84 00`, `1.2.B`, or
+`—` for prose — and a dropdown to overrule it. `parseSpecLines(lines, corrections)` takes them, so
+the heuristics stay exercisable against plain text.
+
+A correction is addressed by **page and line text**, not by index or coordinates. Text is what the
+person pointed at, and it survives re-parsing, a different zoom, and OCR re-running with different
+boxes. It does not survive the text itself changing, which is the honest limit.
+
+Three things worth recording:
+
+- **The dead end is a missed *section heading*, not a missed clause.** You cannot navigate to a
+  section that was never found, and clause-level accuracy does not make up for it. `SECTION_HEADING`
+  caps a title at 80 characters, so a long descriptive title takes the whole heading down with it —
+  that is the case the first test covers, and it is real.
+- **Correcting re-parses; it does not re-read.** Reading pulls text for every page and is the
+  expensive half; parsing is pure and instant. `readSpecLines` was split out of `parseSpecs` so the
+  lines can be held and re-parsed on each change. A test counts `pageText` calls to pin it.
+- **Persistence is the host's.** `corrections` loads them and `onCorrect` receives the whole set
+  after any change, so storing is one write of one array rather than a diff to apply.
 
 ## Then — what the category expects and we lack
 
@@ -106,7 +123,7 @@ server contract, and `RestAdapter` may be the more honest place for it to surfac
 | §4 Markup system | 22 kinds including revision clouds, stamps, measurements, glyph-anchored text markup, photo/file attachments, and voice notes. |
 | §5 Structured markup data | Complete — every field in the spec's list, plus provenance. |
 | §6 Revision survival | Overlay compare, alignment (translation and uniform scale), diff clustering, auto-clouding, slip-sheet migration with a review queue and audit trail. |
-| §7 Specifications workspace | CSI section/clause parsing, clause tree, citation, requirement extraction, and drawing→spec callout detection with nearest-callout auto-citation. |
+| §7 Specifications workspace | CSI section/clause parsing, clause tree, citation, requirement extraction, drawing→spec callout detection with nearest-callout auto-citation, and a per-line correction path for what the heuristics misread. |
 | §8 Issues and tasks | Pins, status, promote-to-issue, typed assignee and due date, BCF topics and `.bcfzip`. **No** forms or daily reports. |
 | §9 Offline-first | IndexedDB working copy, durable outbound queue, optimistic concurrency — every write carries the version it was based on, a 409 surfaces both sides, and `conflictsPlugin` presents them for a human to choose between. |
 | §10 Search | Document-wide search over sheet text, markups and the sheet register, faceted and spatially located. OCR-backed on scans when a provider is configured. |

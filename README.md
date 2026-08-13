@@ -208,8 +208,13 @@ Every list is a single tab stop with arrow-key navigation, Enter and Space activ
 accessible name carrying what the colour swatch conveys visually. Landmarks, `aria-pressed` on armed
 tools, live-region announcements for page and status changes, `prefers-reduced-motion`, and Windows
 High Contrast support. Verified by driving real keys in a real browser, not by asserting attributes
-exist. The drawing canvas itself is not keyboard-navigable — [docs/accessibility.md](docs/accessibility.md)
-says so plainly, along with what else is untested.
+exist.
+
+The drawing canvas too, not only the panels: `Alt`+arrow steps through the markups on a sheet and
+says where you are among them, arrows nudge a selection or aim a drawing cursor, `Space` places a
+point and `Enter` finishes. What is *not* covered —  no screen-reader testing, no third-party audit,
+and spatial accuracy on a drawing being a visual task regardless — is stated plainly in
+[docs/accessibility.md](docs/accessibility.md).
 
 ### Runs under a strict CSP
 
@@ -406,7 +411,8 @@ than deflates.
 | [accessibility.md](docs/accessibility.md) | conformance, verified and unverified, stated plainly |
 | [browser-support.md](docs/browser-support.md) | what is supported, and what each claim rests on |
 | [versioning.md](docs/versioning.md) | what semver covers here, and what it does not |
-| [publishing.md](docs/publishing.md) | releasing to npm |
+| [publishing.md](docs/publishing.md) | releasing to npm, and the three ways to consume it before the scope exists |
+| [realtime.md](docs/realtime.md) | co-markup: what already works, and the three decisions before building the rest |
 | [licences.md](docs/licences.md) | the dependency licence audit |
 | [ocr.md](docs/ocr.md) | choosing and wiring an OCR provider |
 | [roadmap.md](docs/roadmap.md) | what is deliberately not built, and known limitations |

@@ -108,11 +108,28 @@ Three things worth recording:
 
 Larger, and worth arguing before starting.
 
-**5. Real-time co-markup sessions.** Live sync today is a signal that triggers a reload: coarse, no
-presence, no session. Simultaneous multi-user markup on one sheet is table stakes in this category —
-it is the feature plan-review meetings actually run on. This is the biggest functional gap against
-the market, and also the largest piece of work here, because presence and per-markup locking touch
-the store, the adapters and the overlay at once.
+**5. Real-time co-markup sessions.** *Designed, not built — see [realtime.md](realtime.md).*
+
+This entry used to say live sync was "a signal that triggers a reload: coarse". **That was wrong.**
+`subscribe` delivers a `LoadResult` and `persistencePlugin` folds it in with `store.merge`, a
+per-record merge that accepts a remote record only when its version is genuinely newer, then
+advances `baseVersions` and redraws. Nothing reloads. Writing the design note is what caught it, and
+it shrinks the item: the substrate is already record-level and correct.
+
+What is actually missing is **intent** — knowing someone else is in the document, and that they are
+editing *this* markup, before you both do the work and meet at a 409. That is a smaller thing than
+"real-time editing" implies, and it stages into three shippable pieces.
+
+The three decisions the note settles, because each is cheap to get wrong and expensive to unpick:
+a lock must live *beside* the record and not on it (`Annotation.locked` already means "signed off",
+and anything on the record takes a version, so a lock could itself conflict); releases must be
+**leased with the server owning time**, since `beforeunload` fails exactly when it matters; and
+presence must **not** go through `StorageAdapter`, or `OfflineAdapter` will persist cursor positions
+and replay them stale on reconnect.
+
+Throughout, a lock stays advisory and the version check stays the authority — locking makes
+collisions rare and visible, it does not prevent them, and a host with no realtime backend must be
+no worse off than today.
 
 **6. Canvas keyboard navigation.** *Done.* `Alt`+arrow steps through the markups on the sheet in
 reading order and announces the position among them; arrows nudge a selection, aim a drawing cursor

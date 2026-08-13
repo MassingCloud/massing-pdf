@@ -63,6 +63,75 @@ real. Two things are worth doing deliberately:
   is honest while Massing is the only consumer. If the API is meant to be stable on day one, publish
   `1.0.0` instead — going `0.x → 1.0` later is a much louder change than starting there.
 
+## Consuming it before the scope exists
+
+**The unclaimed scope does not block anyone.** It was recorded as blocking two consumers for a
+while, and that framing did real damage: the thing named as the blocker is the one part nobody in
+this repo can fix, so the part that *was* broken and fixable went unexamined for months. A git
+install produced a package that could not be imported at all, because `dist/` is gitignored and npm
+runs `prepare` for a git dependency rather than `prepublishOnly`. There was no `prepare`. That is
+fixed, and all three routes below are verified working.
+
+What claiming the scope actually buys is a clean `npm i`, semver ranges, and provenance — not the
+ability to consume the library.
+
+### 1. Packed tarball — the one to use in CI
+
+```bash
+npm pack   # → massingcloud-pdf-viewer-0.1.0.tgz, with dist/ already built
+```
+
+Commit it to the consumer, or put it on any static host, then:
+
+```bash
+npm i ./vendor/massingcloud-pdf-viewer-0.1.0.tgz
+```
+
+Most hermetic of the three: the tarball carries a built `dist/`, so installing runs no scripts,
+needs no toolchain, and cannot drift. The trade is that bumping it is a manual step.
+
+### 2. Git dependency — the one to use while iterating
+
+```bash
+npm i "github:MassingCloud/massing-pdf#v0.1.0"
+```
+
+Pin a tag or a commit, never a branch. `prepare` builds on install, so the consumer needs the dev
+toolchain to be installable — which it is, since npm installs `devDependencies` for a git dep.
+
+One wrinkle on npm 11: install scripts are gated, so the build may be skipped with an
+`allow-scripts` warning until it is approved once:
+
+```bash
+npm approve-scripts @massingcloud/pdf-viewer
+```
+
+If `node_modules/@massingcloud/pdf-viewer/dist` is missing after install, that gate is why.
+
+### 3. GitHub Packages — if you want a registry now
+
+`npm.pkg.github.com` scopes packages to the **org**, so it needs no npmjs scope claim. Consumers add
+one line to `.npmrc`:
+
+```
+@massingcloud:registry=https://npm.pkg.github.com
+```
+
+It needs a GitHub token with `read:packages` even for public packages, which is the reason not to
+reach for it first.
+
+### Verifying a route
+
+Whichever you take, the check is the same — entry points resolve and the types come with them:
+
+```bash
+node -e "import.meta.resolve('@massingcloud/pdf-viewer')" --input-type=module
+ls node_modules/@massingcloud/pdf-viewer/dist/index.d.ts
+```
+
+Importing the package in bare Node will still fail: pdf.js ships a browser build and says so. That
+is expected, and not a packaging fault — typecheck a consumer file or build with a bundler instead.
+
 ## Consuming it from Massing
 
 Massing's `apps/web` already carries `pdfjs-dist` ^6 and `pdf-lib` ^1.17, which is why they are

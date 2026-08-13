@@ -132,5 +132,9 @@ allowance stops being sound the moment something can reach a consumer. See
 ## Not published yet
 
 `@massingcloud/pdf-viewer` is built, validated and packaged on every release run, but the
-`@massingcloud` npm scope has not been claimed. Until it is, `npm i` will not resolve it — see
-[publishing.md](publishing.md) for the sequence and the three ways to consume it in the meantime.
+`@massingcloud` npm scope has not been claimed, so `npm i @massingcloud/pdf-viewer` does not
+resolve.
+
+**This does not block you.** Three routes work today — a packed tarball (best for CI), a pinned git
+ref (best while iterating), or GitHub Packages. All three are verified, with the commands and the
+one npm 11 wrinkle, in [publishing.md](publishing.md).

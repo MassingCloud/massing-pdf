@@ -171,3 +171,74 @@ test.describe("assistive-technology semantics", () => {
     expect(parseFloat(outline.width)).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The side rails must not overlap themselves.
+ *
+ * `.mpdf-side` is a flex column with `overflow-y: auto`, but flex children default to
+ * `flex-shrink: 1`. Once the panels together exceed the rail, flexbox squeezes each one *below its
+ * content* instead of letting the rail scroll — and a panel body has no overflow of its own, so the
+ * remainder paints straight over the next panel's title.
+ *
+ * It survived a long time because it does not look like a layout fault. It looks like garbled text:
+ * "SPECIFICATIONS" sitting on top of the tool chest's chips. A person found it in a screenshot; the
+ * geometry says it plainly, so assert the geometry.
+ */
+test.describe("side rail layout", () => {
+  test.beforeEach(async ({ page }) => {
+    await openSample(page);
+    await waitForRender(page, 1);
+    // Populate the panels that grow: the bug only appears once the rail is over-subscribed.
+    await page.evaluate(async () => {
+      await window.viewer.specs?.load();
+      for (const y of [200, 400, 600, 800, 1000]) {
+        window.viewer.addAnnotation({
+          kind: "rect", page: 1, points: [{ x: 100, y }, { x: 300, y: y + 80 }], subject: `Row ${y}`,
+        });
+      }
+    });
+  });
+
+  for (const side of ["left", "right"] as const) {
+    test(`no panel spills over its neighbour on the ${side}`, async ({ page }) => {
+      const report = await page.evaluate((which) => {
+        const rail = document.querySelector(`.mpdf-side-${which}`);
+        if (!rail) return null;
+        const panels = [...rail.querySelectorAll(".mpdf-panel")].map((p) => {
+          const body = p.querySelector(".mpdf-panel-body");
+          const r = p.getBoundingClientRect();
+          return {
+            title: p.querySelector(".mpdf-panel-title")?.textContent ?? "?",
+            // >0 means content is painting outside its box, over whatever is beneath it.
+            spill: body ? body.scrollHeight - body.clientHeight : 0,
+            top: r.top, bottom: r.bottom,
+          };
+        });
+        return {
+          spilling: panels.filter((p) => p.spill > 1).map((p) => `${p.title} by ${Math.round(p.spill)}px`),
+          overlapping: panels.slice(1)
+            .map((p, i) => (p.top < panels[i]!.bottom - 1 ? `${panels[i]!.title} / ${p.title}` : null))
+            .filter(Boolean),
+          count: panels.length,
+        };
+      }, side);
+
+      expect(report, `no .mpdf-side-${side} rail`).not.toBeNull();
+      expect(report!.count).toBeGreaterThan(0);
+      expect(report!.spilling).toEqual([]);
+      expect(report!.overlapping).toEqual([]);
+    });
+  }
+
+  test("a long list scrolls inside its panel rather than stretching the rail", async ({ page }) => {
+    // The cap is what lets panels stop shrinking without the last one ending up a scroll away.
+    const lists = await page.evaluate(() =>
+      [...document.querySelectorAll(".mpdf-list")].map((l) => ({
+        capped: getComputedStyle(l).maxHeight !== "none",
+        overflows: getComputedStyle(l).overflowY,
+      })));
+    expect(lists.length).toBeGreaterThan(0);
+    expect(lists.every((l) => l.capped)).toBe(true);
+    expect(lists.every((l) => l.overflows === "auto" || l.overflows === "scroll")).toBe(true);
+  });
+});

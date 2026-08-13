@@ -8,13 +8,23 @@ Ordering principle: unblock consumers, then close gaps this repo already documen
 the market expects, then speculate. Anything that needs a decision rather than an implementation is
 marked as such, because those are not mine to make.
 
-## Now — blocking other people
+## Now — decisions, not blockers
 
-Neither is code, and both are blocking two consumers.
+**Publish to npm.** *Not blocking anyone, and it was wrong to say it was.*
 
-**Publish to npm.** The `@massingcloud` scope is unclaimed, so `npm i` does not resolve.
-MassingViewer lists this as an M0 prerequisite and Massing needs it to drop the local
-`pdfTakeoff.ts`. Sequence in [publishing.md](publishing.md).
+The `@massingcloud` scope is unclaimed, so `npm i @massingcloud/pdf-viewer` does not resolve. Both
+consumers can install today from a packed tarball, a pinned git ref, or GitHub Packages — all three
+verified and written up in [publishing.md](publishing.md).
+
+Calling it a blocker cost something real. The one part nobody in this repo can fix was named as the
+thing in the way, so the part that *was* broken and fixable went unexamined: a git install produced
+a package that could not be imported at all, because `dist/` is gitignored and npm runs `prepare`
+for a git dependency rather than `prepublishOnly` — and there was no `prepare`. Anyone who had
+actually tried the documented fallback would have found it in a minute. Nobody tried, because the
+docs said the blocker was elsewhere.
+
+Claiming the scope buys a clean `npm i`, semver ranges and provenance. Worth doing, and worth doing
+before someone else takes the name — but it is a convenience, not a prerequisite.
 
 **Decide the pdf.js line.** Held at `~6.1.200`. Version 6.2 drops Node 20 and lifts the browser
 floor to Chrome 122+, Firefox 131+, Safari 18.4+. That is a support-matrix decision affecting both
@@ -93,6 +103,27 @@ Three things worth recording:
   lines can be held and re-parsed on each change. A test counts `pageText` calls to pin it.
 - **Persistence is the host's.** `corrections` loads them and `onCorrect` receives the whole set
   after any change, so storing is one write of one array rather than a diff to apply.
+
+## Found, not yet fixed
+
+**A short last page can never become the current page.** `updateVisible` picks whichever page has
+the greatest viewport overlap *in pixels*. `scrollTop` clamps at the end of the document, so if the
+last page is shorter than the viewport, the page above it keeps the larger overlap no matter how far
+you scroll. Measured on the demo sample at fit-width: viewport 899px, max scroll 830px, page 2
+showing 556px against page 3's 310px — page 3 is unreachable as "current".
+
+It surfaced while writing `e2e/specs-correction.spec.ts`, which needs the spec page current, and it
+bites exactly where it hurts most: a spec section bound at the end of a drawing set is short and
+last, so scrolling to it leaves the specs panel describing the sheet above it. Anything keyed to the
+current page — the page indicator, the line inspector, per-page takeoff — reads the wrong page.
+
+Fixing it properly means deciding what "current" should mean when a page is fully visible but small.
+Pure pixel overlap is wrong here; pure visible-fraction is wrong the other way, since a tiny page
+peeking in fully would steal focus from the sheet being read. Probably: prefer a page that is
+*entirely* within the viewport, and fall back to overlap. That is a behaviour change touching the
+page indicator and several tests, so it wants doing deliberately rather than folded into a test fix.
+
+The e2e spec zooms in to work around it, and says so.
 
 ## Then — what the category expects and we lack
 

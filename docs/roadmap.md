@@ -20,15 +20,24 @@ MassingViewer lists this as an M0 prerequisite and Massing needs it to drop the 
 floor to Chrome 122+, Firefox 131+, Safari 18.4+. That is a support-matrix decision affecting both
 consumers, not a dependency bump — see [browser-support.md](browser-support.md).
 
-## Next — small, certain, already documented as gaps
+## Next — empty
 
-Each closes something this repo already admits to, and none is speculative.
+All four items that stood here are done. What they were, and what building them taught, is kept
+below rather than deleted: the reasoning is the part worth keeping, and two of the four turned out
+to be different problems than the entry described.
 
-**1. Workflow fields into the typed model.** `assignee` and `dueDate` exist only inside `ext` as
-untyped strings, fished back out with `typeof x === "string"` guards in `io/bcf.ts`. They round-trip,
-so nothing is broken, but the type system cannot see the two fields any issue workflow depends on.
-Promote them to `Annotation` alongside `priority`, which is already typed. Small, and a prerequisite
-for the next item.
+The next real work is in **Then**, and both items there want an argument before a branch.
+
+### Done — what "Next" held
+
+**1. Workflow fields into the typed model.** *Done.* `assignee` and `dueDate` were untyped strings
+inside `ext`, fished back out with `typeof x === "string"` guards in `io/bcf.ts`. They are now on
+`Annotation` beside `priority`.
+
+The near-miss worth recording: promoting a field out of `ext` touches **four** places, and the
+importer is the one you forget. `io/xfdf.ts` has a write side (`structuredPayload`) *and* a read side
+that enumerates payload keys by hand — adding to the first alone means the field is written and then
+silently dropped on import.
 
 **2. ~~BCF 3.0 output~~ — dropped, and replaced by schema conformance.** *Done.*
 

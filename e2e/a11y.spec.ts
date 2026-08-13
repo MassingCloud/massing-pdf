@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openSample, waitForRender } from "./helpers";
 
 /**
@@ -240,5 +240,146 @@ test.describe("side rail layout", () => {
     expect(lists.length).toBeGreaterThan(0);
     expect(lists.every((l) => l.capped)).toBe(true);
     expect(lists.every((l) => l.overflows === "auto" || l.overflows === "scroll")).toBe(true);
+  });
+});
+
+/**
+ * Authoring on the canvas without a pointing device.
+ *
+ * This is the gap that kept the conformance claim qualified. The markup list reaches and reads
+ * every markup, but a review tool produces contract documents — being able to see the record and
+ * not add to it is a different exclusion, not a smaller one.
+ *
+ * Driven with real keys against the real gesture loop, because the whole claim is about keys.
+ */
+test.describe("canvas keyboard authoring", () => {
+  test.beforeEach(async ({ page }) => {
+    await openSample(page);
+    await waitForRender(page, 1);
+    await page.locator(".mpdf-root").focus();
+  });
+
+  const count = (page: Page) => page.evaluate(() => window.viewer.store.all().length);
+
+  test("a rectangle can be drawn with arrows and Space", async ({ page }) => {
+    expect(await count(page)).toBe(0);
+    await page.keyboard.press("r");
+
+    // Space places the first corner, arrows move, Space places the second — two points is the max
+    // for a drag tool, so it commits itself.
+    await page.keyboard.press("Space");
+    for (let i = 0; i < 6; i++) await page.keyboard.press("ArrowRight");
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Space");
+
+    await expect.poll(() => count(page), { timeout: 5_000 }).toBe(1);
+    const made = await page.evaluate(() => {
+      const a = window.viewer.store.all()[0]!;
+      return { kind: a.kind, points: a.points.length, w: Math.abs(a.points[1]!.x - a.points[0]!.x) };
+    });
+    expect(made.kind).toBe("rect");
+    expect(made.points).toBe(2);
+    expect(made.w).toBeGreaterThan(0);
+  });
+
+  test("Shift moves the aim in strides", async ({ page }) => {
+    await page.keyboard.press("r");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Space");
+
+    await expect.poll(() => count(page), { timeout: 5_000 }).toBe(1);
+    // One ordinary step plus one stride must be wider than two ordinary steps.
+    const width = await page.evaluate(() => {
+      const a = window.viewer.store.all()[0]!;
+      return Math.abs(a.points[1]!.x - a.points[0]!.x);
+    });
+    expect(width).toBeGreaterThan(8);
+  });
+
+  test("a polygon takes as many points as you give it, and Enter finishes", async ({ page }) => {
+    await page.keyboard.press("Space");           // no tool armed: must not create anything
+    expect(await count(page)).toBe(0);
+
+    await page.evaluate(() => window.viewer.setTool("polygon"));
+    for (const move of ["ArrowRight", "ArrowDown", "ArrowLeft"]) {
+      await page.keyboard.press("Space");
+      for (let i = 0; i < 5; i++) await page.keyboard.press(move);
+    }
+    await page.keyboard.press("Enter");
+
+    await expect.poll(() => count(page), { timeout: 5_000 }).toBe(1);
+    // Space and Enter have to be different keys: with one doing both there is no way to say
+    // "another vertex" rather than "done", and a polygon becomes impossible without a pointer.
+    expect(await page.evaluate(() => window.viewer.store.all()[0]!.points.length)).toBe(3);
+  });
+
+  test("Escape abandons a keyboard draft without creating anything", async ({ page }) => {
+    await page.evaluate(() => window.viewer.setTool("polygon"));
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Escape");
+    expect(await count(page)).toBe(0);
+  });
+
+  test("the aim is visible while a tool is armed", async ({ page }) => {
+    // A pointer brings its own cursor; a keyboard has none, so without this the person aiming is
+    // the only one who cannot see where they are aiming.
+    await expect(page.locator(".mpdf-kb-cursor")).toHaveCount(0);
+    await page.keyboard.press("r");
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator(".mpdf-kb-cursor")).toHaveCount(1);
+  });
+
+  test("Alt+arrow steps between markups on the sheet and says where it is", async ({ page }) => {
+    await page.evaluate(() => {
+      for (const [i, y] of [300, 700, 1100].entries()) {
+        window.viewer.addAnnotation({
+          kind: "rect", page: 1, points: [{ x: 100, y }, { x: 300, y: y + 80 }], subject: `Mark ${i + 1}`,
+        });
+      }
+    });
+
+    await page.keyboard.press("Alt+ArrowRight");
+    await expect.poll(() => page.evaluate(() =>
+      window.viewer.store.selected()[0]?.subject ?? null), { timeout: 5_000 }).toBe("Mark 1");
+
+    await page.keyboard.press("Alt+ArrowRight");
+    await expect.poll(() => page.evaluate(() =>
+      window.viewer.store.selected()[0]?.subject ?? null)).toBe("Mark 2");
+
+    // Position among the others is most of what a markup means, and it is the thing a list cannot
+    // convey — so the announcement has to carry it.
+    await expect.poll(() => page.locator('[aria-live="polite"]').textContent()).toContain("2 of 3");
+
+    await page.keyboard.press("Alt+ArrowLeft");
+    await expect.poll(() => page.evaluate(() =>
+      window.viewer.store.selected()[0]?.subject ?? null)).toBe("Mark 1");
+  });
+
+  test("arrows nudge the selection, and Shift nudges further", async ({ page }) => {
+    await page.evaluate(() => window.viewer.addAnnotation({
+      kind: "rect", page: 1, points: [{ x: 100, y: 300 }, { x: 300, y: 380 }], subject: "Movable",
+    }));
+    await page.keyboard.press("Alt+ArrowRight");
+
+    const x = () => page.evaluate(() => window.viewer.store.all()[0]!.points[0]!.x);
+    const start = await x();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(x, { timeout: 5_000 }).toBe(start + 1);
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect.poll(x).toBe(start + 11);
+  });
+
+  test("arrows still scroll when there is nothing to move", async ({ page }) => {
+    // Claiming arrows unconditionally would trade one keyboard gap for another: they are how you
+    // scroll a drawing.
+    const top = () => page.evaluate(() => window.viewer.el.scroll.scrollTop);
+    expect(await top()).toBe(0);
+    for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowDown");
+    await expect.poll(top, { timeout: 5_000 }).toBeGreaterThan(0);
   });
 });

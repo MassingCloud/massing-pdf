@@ -401,3 +401,50 @@ describe("specs plugin corrections", () => {
     expect(h.viewer.specs!.lines()).toHaveLength(0);
   });
 });
+
+/**
+ * A correction is untrusted input.
+ *
+ * It arrives from host storage, which means it arrives from wherever that host got it — as
+ * untrusted as an imported XFDF record. The fields go into the register a drawing callout is
+ * matched against, so a malformed one is not cosmetic: it is an entry nothing can ever cite.
+ */
+describe("spec correction inputs are validated", () => {
+  const at = (t: string, y = 0): SpecLine => ({ text: t, page: 1, box: { x: 0, y, w: 10, h: 10 } });
+
+  it("normalises a supplied section number rather than trusting it", () => {
+    const [section] = parseSpecLines([at("FIRESTOPPING")], [
+      { page: 1, text: "FIRESTOPPING", as: "section", number: "079999" },
+    ]);
+    expect(section!.number).toBe("07 99 99");
+    // `division` is sliced off the number and drives grouping, so an unnormalised number corrupts
+    // it too — here it would have been "07" by luck and "(." for anything hostile.
+    expect(section!.division).toBe("07");
+  });
+
+  it("refuses a number that is not a CSI number at all", () => {
+    expect(parseSpecLines([at("X")], [
+      { page: 1, text: "X", as: "section", number: "(.*)(.*)$$$", title: "t" },
+    ])).toHaveLength(0);
+  });
+
+  it("clamps a depth outside the hierarchy", () => {
+    const [section] = parseSpecLines(
+      [at("SECTION 07 84 00 - FIRESTOPPING"), at("Q", 20), at("R", 40)],
+      [
+        { page: 1, text: "Q", as: "clause", depth: -5 },
+        { page: 1, text: "R", as: "clause", depth: 99 },
+      ],
+    );
+    expect(section!.clauses.map((c) => c.depth)).toEqual([0, 3]);
+  });
+
+  it("keeps a hostile title as text, since that is what renders it", () => {
+    // Free text is free text; the defence is `textContent` at the point of rendering, not a filter
+    // here that would mangle a legitimate title containing a bracket.
+    const [section] = parseSpecLines([at("F")], [
+      { page: 1, text: "F", as: "section", number: "07 84 00", title: "<img src=x onerror=alert(1)>" },
+    ]);
+    expect(section!.title).toBe("<img src=x onerror=alert(1)>");
+  });
+});

@@ -12,7 +12,7 @@ review has something honest to work from rather than a claim.
 | | |
 |---|---|
 | Target | WCAG 2.1 Level AA |
-| Status | **Partially conformant.** Every panel, list and control is keyboard-operable and labelled. The drawing canvas itself is not directly navigable — see below. |
+| Status | **Conformant, unaudited.** Every panel, list and control is keyboard-operable and labelled, and the drawing canvas can be traversed and drawn on with a keyboard. No third party has checked this, and no screen-reader testing has been done — see *Not verified*. |
 | Verified by | `e2e/a11y.spec.ts` and `e2e/conflict.spec.ts`, run on every CI build, driving real keys against the real DOM |
 | Not verified | Screen-reader output on JAWS, NVDA or VoiceOver; magnification beyond 200%; a formal third-party audit |
 
@@ -51,6 +51,26 @@ match, which left someone arrowing through a list with no visible focus at all. 
 therefore sets an explicit `data-kbd-focus` attribute, which behaves identically everywhere, and the
 ring is styled off both.
 
+**The canvas, not just the panels.** With the drawing focused:
+
+| | |
+|---|---|
+| `Alt` + arrow | step the selection through the markups on the sheet, in reading order, announcing where you are ("3 of 11") |
+| arrow | nudge the selected markups — 1pt, or 10pt with `Shift` |
+| arrow, with a tool armed | aim the drawing cursor — 4pt, or 24pt with `Shift` |
+| `Space` | place a point where you are aiming |
+| `Enter` | finish the markup |
+| `Escape` | abandon it |
+| arrow, with nothing to move | pan the sheet |
+
+`Space` and `Enter` are deliberately different keys. With one doing both there is no way to say
+"another vertex" rather than "done", which makes a polygon impossible without a pointer. Arming a
+tool announces the keys, because a keyboard route nobody is told about is one nobody uses.
+
+Arrows only get claimed when there is something for them to do, so they remain the way to pan.
+While a tool is armed the aim is drawn on the sheet — a pointer brings its own cursor, and without
+one the person aiming would be the only one who cannot see where.
+
 **The one modal.** `conflictsPlugin`'s dialog is `role="dialog"` with `aria-modal="true"`, traps Tab
 inside itself, returns focus to whatever had it on close, and answers Escape. It also opens focused
 on **"Keep theirs"** — the choice that discards nothing — so pressing Enter on a dialog you have not
@@ -64,11 +84,10 @@ colour the mode replaces.
 
 ## What does not work
 
-**The drawing canvas is not directly keyboard-navigable.** You cannot Tab between markups *on the
-sheet*, or draw one with the keyboard. The markup list is the accessible equivalent: everything on
-the drawing appears there, is reachable, and selecting a row moves the view to it. This is a real
-limitation, not a workaround we consider equivalent — drawing a revision cloud requires a pointing
-device.
+**Spatial judgement still needs sight.** You can now author and traverse on the canvas with a
+keyboard (see below), but placing a markup *accurately over the right piece of linework* is a visual
+task, and nothing here changes that. Aiming by arrow key is workable for a cloud around a region; it
+is not a substitute for seeing what you are enclosing.
 
 **Spatial information is not conveyed.** "A cloud on page 2 near the north stair" is not something
 the library can say; it knows page coordinates, not what is at them. A markup's *subject* is the

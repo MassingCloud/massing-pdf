@@ -225,7 +225,12 @@ export function parseSpecLines(
     if (override) {
       if (override.as === "none") continue;
       if (override.as === "section") {
-        const number = override.number ?? looseSectionNumber(text);
+        // Normalise whatever was supplied rather than trusting it. A correction arrives from host
+        // storage, so `number` is as untrusted as any other stored field — and an unnormalised one
+        // lands in the register as a section no drawing callout can ever match, with `division`
+        // sliced out of the first two characters of whatever it happened to be.
+        const number = (override.number ? looseSectionNumber(override.number) : undefined)
+          ?? looseSectionNumber(text);
         // Without a number there is no section to address, and inventing one would put an entry in
         // the register that no drawing can ever cite. Fall through to the heuristics instead.
         if (number) {

@@ -114,11 +114,27 @@ it is the feature plan-review meetings actually run on. This is the biggest func
 the market, and also the largest piece of work here, because presence and per-markup locking touch
 the store, the adapters and the overlay at once.
 
-**6. Canvas keyboard navigation.** The accessibility statement is *partially* conformant precisely
-because you cannot Tab between markups on the sheet or draw one without a pointing device. The
-markup list is a genuine equivalent for reaching and reading, not for authoring. Closing this is
-what would let the conformance claim lose its qualifier — and it is a procurement gate for public
-sector buyers.
+**6. Canvas keyboard navigation.** *Done.* `Alt`+arrow steps through the markups on the sheet in
+reading order and announces the position among them; arrows nudge a selection, aim a drawing cursor
+when a tool is armed, and pan when there is nothing else to do; `Space` places a point and `Enter`
+finishes. Documented in [accessibility.md](accessibility.md), driven with real keys in
+`e2e/a11y.spec.ts`.
+
+Three things worth recording:
+
+- **`Space` and `Enter` have to be different keys.** With one doing both there is no way to say
+  "another vertex" rather than "done", and a polygon becomes impossible without a pointer.
+- **Arrows are claimed only when there is something to do with them**, because they are also how
+  you pan a drawing — taking them unconditionally would trade one keyboard gap for another. Writing
+  that fallback found that arrows did not pan *at all* with the canvas focused: the browser scrolls
+  the focused element's scrollable **ancestor**, and the scroller here is a descendant of the
+  focused root. The e2e test asserting it caught an assumption that had never been checked.
+- **The aim has to be drawn.** A pointer carries its own cursor; a keyboard has none, so without
+  a rendered crosshair the person aiming is the only one who cannot see where they are aiming.
+
+The conformance claim loses its *partial* qualifier, but gains an honest one — conformant and
+**unaudited**. Nobody has run a screen reader against it in anger, and spatial accuracy on a drawing
+remains a visual task whatever the key bindings are.
 
 ## Speculative — needs a decision, not an implementation
 

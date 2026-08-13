@@ -156,7 +156,17 @@ record.
 ## Credentials
 
 Never put an OCR API key in browser code. See the note at the top of `plugins/ocr-providers.ts` and
-[ocr.md](ocr.md); use the `proxy` option and hold the credential server-side.
+[ocr.md](ocr.md); use the `proxy` option and hold the credential server-side. Every provider takes
+`proxy`, and `key` / `apiKey` exist for development and trusted networks only. Using one off
+localhost logs a console warning.
+
+**Google Vision is the worse of the two to get wrong.** Its API-key authentication is by query
+string — that is Google's design, not a choice this library makes — so the key does not merely sit
+in code a visitor can read: it is written into browser history and into the access logs of every hop
+the request passes through, including any proxy or CDN in between. Rotating the key is the only
+cleanup, because the recorded copies are not yours to delete. Azure sends its key in a header, which
+is bad in the same way but does not leave that trail. Use `proxy` for both; treat it as mandatory
+for Google.
 
 ## Supply chain
 

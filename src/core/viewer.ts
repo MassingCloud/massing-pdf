@@ -15,7 +15,7 @@ import {
 } from "./coords";
 import { bbox, distToPath, pointInPolygon, simplify, snapAngle } from "./geometry";
 import { measure } from "./units";
-import { drawAnnotation, drawDraft, el } from "../render/svg";
+import { drawAnnotation, drawDraft, drawKeyboardCursor, el } from "../render/svg";
 import type {
   ActionDef, KindRenderer, PanelDef, PluginContext, ToolDef, ViewerPlugin,
 } from "./plugin";
@@ -129,6 +129,14 @@ export class Viewer {
   private draft: Pt[] = [];
   private draftPage = 1;
   private gesture: GestureState | null = null;
+  /**
+   * Where the keyboard is pointing, page space. Null until someone uses the keyboard to draw.
+   *
+   * The pointer is not the only way to author a markup. Without this you can *read* a review with a
+   * keyboard — the markup list reaches everything — but you cannot add to one, which makes the
+   * record something you can be shown and not something you can contribute to.
+   */
+  private kbCursor: { page: number; pt: Pt } | null = null;
   private destroyed = false;
   private scrollRaf = 0;
   /** Live touch points, for pinch and two-finger pan. Keyed by pointerId. */
@@ -283,7 +291,19 @@ export class Viewer {
     this.syncTextLayers();
     // Arming a tool changes the cursor and highlights a button. Neither is perceivable without
     // sight, and a reviewer needs to know which tool a keypress just selected.
-    this.announce(t ? `${t.label} tool selected` : "Tool cleared");
+    // And say how to use it without a pointer. A keyboard route nobody is told about is one nobody
+    // uses; this is the only moment the answer is relevant, so it is the moment to give it.
+    this.announce(
+      t
+        ? `${t.label} tool selected.`
+          + (t.input === "text-select"
+            ? " Select text on the sheet to place it."
+            : " Arrow keys to aim, Space to place a point, Enter to finish.")
+        : "Tool cleared",
+    );
+    // A tool armed by keyboard should start aiming from what is on screen, not from wherever the
+    // cursor was left on another page.
+    if (t && this.kbCursor && this.kbCursor.page !== this._page) this.kbCursor = null;
     this.bus.emit("tool:changed", { id: this.activeToolId });
   }
 
@@ -601,6 +621,9 @@ export class Viewer {
     }
     if (this.draft.length && this.draftPage === layer.page && this.activeTool) {
       content.appendChild(drawDraft(this.activeTool.kind, this.draft, this._zoom));
+    }
+    if (this.kbCursor && this.kbCursor.page === layer.page && this.activeTool) {
+      content.appendChild(drawKeyboardCursor(this.kbCursor.pt, this._zoom));
     }
   }
 
@@ -1083,13 +1106,63 @@ export class Viewer {
     }
     if (e.key === "Enter") {
       const tool = this.activeTool;
-      if (tool?.input === "poly" && this.draft.length >= (tool.minPoints ?? 2)) { e.preventDefault(); void this.commit(tool, e); }
+      // Any tool with enough points, not just `poly`: a draft can now be built by keyboard, and a
+      // rectangle placed with Space needs the same way to say "done" that a polygon has.
+      const min = tool ? (tool.minPoints ?? (tool.input === "click" ? 1 : 2)) : 0;
+      if (tool && this.draft.length >= min) { e.preventDefault(); void this.commit(tool, e); }
       return;
     }
     if ((e.key === "Delete" || e.key === "Backspace") && !this.opts.readOnly) {
       if (this.store.selectedIds().length) { e.preventDefault(); this.store.removeSelected(); }
       return;
     }
+
+    /*
+     * Arrows, in priority order: drive the drawing cursor when a tool is armed, otherwise nudge the
+     * selection, otherwise fall through and let the browser scroll.
+     *
+     * Falling through matters. Arrows are how you scroll a drawing, and taking them unconditionally
+     * would trade one keyboard gap for another — so they are only claimed when there is something
+     * for them to do.
+     */
+    const ARROWS: Record<string, [number, number]> = {
+      ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+    };
+    const dir = ARROWS[e.key];
+    if (dir && !mod) {
+      // Alt+arrow steps between markups on the sheet, whatever else is going on.
+      if (e.altKey) {
+        e.preventDefault();
+        this.stepMarkup(dir[0] + dir[1] > 0 ? 1 : -1);
+        return;
+      }
+      if (this.activeTool && this.activeTool.input !== "text-select") {
+        e.preventDefault();
+        this.moveCursor(dir[0], dir[1], e.shiftKey);
+        return;
+      }
+      if (this.nudgeSelection(dir[0], dir[1], e.shiftKey)) { e.preventDefault(); return; }
+      // Nothing to move, so pan the sheet. The browser will not do it: arrows scroll the focused
+      // element's scrollable *ancestor*, and the scroller here is a descendant of the focused root,
+      // so with the canvas focused arrows did nothing at all.
+      const s = this.el.scroll;
+      const step = e.shiftKey ? s.clientHeight * 0.9 : 64;
+      s.scrollLeft += dir[0] * step;
+      s.scrollTop += dir[1] * step;
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === " " || e.key === "Spacebar") {
+      const tool = this.activeTool;
+      if (tool && tool.input !== "text-select") {
+        // Space would otherwise scroll the drawing out from under the person pressing it.
+        e.preventDefault();
+        this.placeCursorPoint(e);
+        return;
+      }
+    }
+
     if (mod || e.altKey) return;
     // Single-key tool and action shortcuts.
     for (const t of this.tools.values()) if (t.shortcut === e.key) { e.preventDefault(); this.setTool(t.id); return; }
@@ -1116,6 +1189,100 @@ export class Viewer {
     if (!originals.size) return;
     this.gesture = { mode: "move", start: pt, page, pointerId: e.pointerId, moved: false, originals };
     this.el.pages.setPointerCapture?.(e.pointerId);
+  }
+
+  // ---- keyboard authoring and traversal ------------------------------------
+
+  /**
+   * Where the keyboard is pointing, seeded at the centre of what is actually on screen.
+   *
+   * Seeded through `locate` rather than by arithmetic on the page box, so it lands correctly under
+   * rotation — the same mapping a real pointer goes through.
+   */
+  private ensureCursor(): { page: number; pt: Pt } {
+    if (this.kbCursor && this.kbCursor.page === this._page) return this.kbCursor;
+    const r = this.el.scroll.getBoundingClientRect();
+    const at = this.locate({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, target: null });
+    const info = this.doc?.pageInfoSync(this._page);
+    this.kbCursor = at ?? { page: this._page, pt: { x: (info?.width ?? 0) / 2, y: (info?.height ?? 0) / 2 } };
+    return this.kbCursor;
+  }
+
+  /** Move the keyboard cursor, clamped to the page. Arrow steps, Shift strides. */
+  private moveCursor(dx: number, dy: number, stride: boolean): void {
+    const cur = this.ensureCursor();
+    const step = stride ? 24 : 4;
+    const info = this.doc?.pageInfoSync(cur.page);
+    const x = cur.pt.x + dx * step, y = cur.pt.y + dy * step;
+    this.kbCursor = {
+      page: cur.page,
+      pt: {
+        x: info ? Math.min(Math.max(0, x), info.width) : x,
+        y: info ? Math.min(Math.max(0, y), info.height) : y,
+      },
+    };
+    this.redraw(cur.page);
+  }
+
+  /**
+   * Place a point where the keyboard cursor is — the keyboard's equivalent of a click.
+   *
+   * Space places, Enter finishes. Splitting them is what makes a polygon possible without a
+   * pointer: with one key doing both there is no way to say "another vertex" rather than "done".
+   */
+  private placeCursorPoint(e: KeyboardEvent): void {
+    const tool = this.activeTool;
+    if (!tool || this.opts.readOnly) return;
+    const cur = this.ensureCursor();
+    if (this.draft.length && this.draftPage !== cur.page) this.draft = [];
+    this.draftPage = cur.page;
+    this.draft.push(cur.pt);
+
+    const max = tool.maxPoints ?? (tool.input === "click" ? 1 : tool.input === "drag" ? 2 : 0);
+    if (max && this.draft.length >= max) { void this.commit(tool, e); return; }
+    this.announce(`Point ${this.draft.length} placed. Space for another, Enter to finish.`);
+    this.redraw(cur.page);
+    this.bus.emit("tool:draft", { id: tool.id, points: this.draft });
+  }
+
+  /** Markups on a page in reading order, so "next" means what a reader expects. */
+  private inReadingOrder(page: number): Annotation[] {
+    return [...this.store.visibleOnPage(page)].sort((a, b) => {
+      const pa = a.points[0] ?? { x: 0, y: 0 }, pb = b.points[0] ?? { x: 0, y: 0 };
+      return pa.y - pb.y || pa.x - pb.x;
+    });
+  }
+
+  /**
+   * Step the selection to the next or previous markup *on the sheet*.
+   *
+   * The markup list already reaches every markup, but reading a list is not the same as moving
+   * across the drawing — where a markup sits relative to the others is most of what it means.
+   */
+  private stepMarkup(delta: 1 | -1): void {
+    const list = this.inReadingOrder(this._page);
+    if (!list.length) { this.announce(`No markups on page ${this._page}.`); return; }
+    const selected = this.store.selectedIds();
+    const at = list.findIndex((a) => selected.includes(a.id));
+    const next = list[at < 0 ? (delta > 0 ? 0 : list.length - 1) : (at + delta + list.length) % list.length]!;
+    this.store.select(next.id);
+    void this.goToAnnotation(next);
+    this.announce(
+      `${next.kind}${next.subject ? `, ${next.subject}` : ""}, ${list.indexOf(next) + 1} of ${list.length} on page ${this._page}.`,
+    );
+  }
+
+  /** Nudge every selected markup. The keyboard equivalent of dragging one. */
+  private nudgeSelection(dx: number, dy: number, stride: boolean): boolean {
+    if (this.opts.readOnly) return false;
+    const moving = this.store.selected().filter((a) => !a.locked);
+    if (!moving.length) return false;
+    const step = stride ? 10 : 1;
+    for (const a of moving) {
+      this.store.update(a.id, { points: a.points.map((p) => ({ ...p, x: p.x + dx * step, y: p.y + dy * step })) });
+    }
+    this.announce(`Moved ${moving.length} markup${moving.length === 1 ? "" : "s"}.`);
+    return true;
   }
 
   private nearestVertex(a: Annotation, p: Pt, tol: number): number {

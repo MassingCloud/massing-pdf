@@ -45,7 +45,7 @@ function toPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 
 /** Warn once per provider when a credential is about to travel in client code. */
 const warned = new Set<string>();
-function warnAboutKey(id: string): void {
+function warnAboutKey(id: string, inUrl = false): void {
   if (warned.has(id)) return;
   warned.add(id);
   const local = typeof location !== "undefined"
@@ -54,7 +54,14 @@ function warnAboutKey(id: string): void {
   console.warn(
     `[massing-pdf] ${id}: an API key is being used directly from the browser. It is readable by ` +
     `anyone who loads this page and billable to you. Use the \`proxy\` option and attach the ` +
-    `credential server-side.`,
+    `credential server-side.`
+    // Worth saying separately: a key in the query string outlives the request. It is written to
+    // browser history and to every access log the request passes through, so "rotate the key" is
+    // not enough to clean up after it.
+    + (inUrl
+      ? " This provider authenticates by query string, so the key is also recorded in browser"
+        + " history and in the access logs of anything the request passes through."
+      : ""),
   );
 }
 
@@ -436,7 +443,7 @@ export function googleVisionOcrProvider(options: GoogleOcrOptions = {}): OcrProv
 
   const url = (): string => {
     if (options.proxy) return options.proxy;
-    warnAboutKey("googleVisionOcrProvider");
+    warnAboutKey("googleVisionOcrProvider", true);
     return `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(options.apiKey!)}`;
   };
 

@@ -74,9 +74,14 @@ behind a plugin kernel, to be consumed back by it.
 - Every list is a single tab stop with arrow-key navigation, Enter and Space activation, and an
   accessible name carrying what a colour swatch conveys visually. Landmarks, `aria-pressed` on armed
   tools, live-region announcements, `prefers-reduced-motion` and forced-colors support.
+- The drawing canvas too, not only the panels. `Alt`+arrow steps through the markups on a sheet in
+  reading order and announces the position among them; arrows nudge a selection, aim a drawing
+  cursor when a tool is armed, and pan when there is nothing else to do; `Space` places a point and
+  `Enter` finishes. Space and Enter are separate keys deliberately — with one doing both, a polygon
+  cannot be drawn without a pointer.
 - Verified by driving real keys in a real browser. What is **not** covered is stated plainly in
-  [docs/accessibility.md](docs/accessibility.md): the drawing canvas is not keyboard-navigable, and
-  nothing has been tested with a screen reader.
+  [docs/accessibility.md](docs/accessibility.md): nothing has been tested with a screen reader, no
+  third party has audited it, and placing a markup accurately over linework remains a visual task.
 
 ### Security
 

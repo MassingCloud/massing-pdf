@@ -372,3 +372,30 @@ export function drawDraft(kind: string, pts: readonly Pt[], zoom: number): SVGGE
   for (const p of pts) g.append(el("circle", { cx: p.x, cy: p.y, r, fill: "#4a8cff" }));
   return g;
 }
+
+/**
+ * Where the keyboard is pointing, while a tool is armed.
+ *
+ * A pointer carries its own cursor and needs nothing drawn. A keyboard has none, so without this
+ * the person aiming is the only one who cannot see where they are aiming — which makes keyboard
+ * drawing technically possible and practically useless.
+ *
+ * Sized in screen terms (`/ zoom`) so it stays the same size as the drawing scales, and drawn with
+ * a white halo under the dark stroke so it survives both a white sheet and dark linework.
+ */
+export function drawKeyboardCursor(p: Pt, zoom: number): SVGGElement {
+  const g = el("g", { class: "mpdf-kb-cursor", "pointer-events": "none" });
+  const arm = 9 / zoom, gap = 2.5 / zoom;
+  const lines: [number, number, number, number][] = [
+    [p.x - arm, p.y, p.x - gap, p.y], [p.x + gap, p.y, p.x + arm, p.y],
+    [p.x, p.y - arm, p.x, p.y - gap], [p.x, p.y + gap, p.x, p.y + arm],
+  ];
+  for (const w of [3.2 / zoom, 1.3 / zoom]) {
+    const colour = w > 2 / zoom ? "#fff" : "#e2554a";
+    for (const [x1, y1, x2, y2] of lines) {
+      g.append(el("line", { x1, y1, x2, y2, stroke: colour, "stroke-width": w, "stroke-linecap": "round" }));
+    }
+  }
+  g.append(el("circle", { cx: p.x, cy: p.y, r: 1.2 / zoom, fill: "#e2554a" }));
+  return g;
+}

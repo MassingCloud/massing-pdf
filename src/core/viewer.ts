@@ -625,6 +625,8 @@ export class Viewer {
     if (this.kbCursor && this.kbCursor.page === layer.page && this.activeTool) {
       content.appendChild(drawKeyboardCursor(this.kbCursor.pt, this._zoom));
     }
+    // Anything a plugin decorated this overlay with was just thrown away with the rest of it.
+    this.bus.emit("overlay:painted", { page: layer.page });
   }
 
   private wireStore(): void {

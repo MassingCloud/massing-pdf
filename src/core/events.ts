@@ -13,6 +13,14 @@ export interface ViewerEvents {
   "page:changed": { page: number };
   /** A page finished painting to its canvas. */
   "page:rendered": { page: number; scale: number };
+  /**
+   * A page's annotation overlay was rebuilt.
+   *
+   * The overlay is torn down and re-created on every repaint, so anything a plugin adds to it — a
+   * lock badge, a highlight, a presence marker — is destroyed each time and has to be re-applied.
+   * This is that cue. Distinct from `page:rendered`, which is about the raster.
+   */
+  "overlay:painted": { page: number };
   /** Zoom / pan / rotation changed. */
   "view:changed": { zoom: number; page: number; rotation: number };
 

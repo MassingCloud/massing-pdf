@@ -283,6 +283,7 @@ Viewer (kernel)
 | `sheetsPlugin` | title-block extraction, sheet register, thumbnails |
 | `persistencePlugin` | adapter wiring, debounced saves, live merge |
 | `conflictsPlugin` | the 409 dialog: both versions, side by side, reviewer chooses |
+| `collabPlugin` | who else is here, and what they are editing — advisory leases, host's transport |
 | `exportersPlugin` | PDF / XFDF / BCF / CSV in and out |
 | `toolbarPlugin` | the default chrome — drop it and build your own |
 

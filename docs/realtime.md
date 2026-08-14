@@ -1,8 +1,17 @@
-# Real-time co-markup — design note
+# Real-time co-markup
 
-Roadmap item 5. This is the argument, not the implementation. It exists because the questions it
-settles are the expensive kind: a lock in the wrong place, or presence on the wrong transport, is
-cheap to write and costly to unpick once two products depend on it.
+Roadmap item 5. The argument came first, deliberately — a lock in the wrong place, or presence on
+the wrong transport, is cheap to write and costly to unpick once two products depend on it. Stages 1
+and 2 are now built (`adapters/presence.ts`, `plugins/collab.ts`); the reasoning below is what they
+were built to, and is kept because it is the part that stops someone "simplifying" them back.
+
+**What ships:** `PresenceChannel` / `PresenceSession` as the contract, `MemoryPresenceChannel` as an
+in-process implementation for the demo and tests, and `collabPlugin` — participants panel, advisory
+leases taken on selection, and markups held by others marked on the overlay.
+
+**What a host supplies:** a `PresenceChannel` backed by whatever it already runs — a WebSocket, SSE,
+or a hosted realtime service. There is no default and no bundled transport, for the same reason
+there is no default OCR engine: that choice belongs to the host.
 
 ## What already works, stated accurately
 
@@ -126,13 +135,47 @@ here. If it is ever wanted, it belongs on the presence channel as a transient, n
 
 ## Staging
 
-1. **Presence only** — who is in the document, which sheet they are on. No locking. Small, useful
-   immediately ("Ana is on A-201"), and proves the channel without touching the store.
-2. **Advisory leases** — acquire on selection-for-edit, renew while editing, decorate markups held
-   by others. The 409 path stays as the safety net underneath.
-3. **Viewport presence** — where on the sheet someone is looking. Only if 1 and 2 are being used.
+1. **Presence** — who is in the document, which sheet they are on. *Built.*
+2. **Advisory leases** — acquired on selection, renewed while held, markups held by others marked on
+   the overlay. The 409 path stays as the safety net underneath. *Built.*
+3. **Viewport presence** — where on the sheet someone is looking. *Not built.* `setViewing` carries
+   the page already; a box would be the addition. Deliberately last: it is the highest-traffic and
+   lowest-value part, and worth doing only once 1 and 2 are actually in use.
 
 Each stage ships alone and each is useful alone, which is the test of whether the split is real.
+
+## One thing the implementation added
+
+**Decoration needs a repaint cue.** The annotation overlay is torn down and rebuilt by `paint()` on
+every repaint, so a lock badge applied to it is destroyed by the next scroll, zoom or edit. The
+plugin cannot own that element and cannot bake the mark into `render/svg.ts` either — a lock is not
+a property of the markup, which is the whole point of keeping it off the record.
+
+So the kernel gained `overlay:painted`, emitted per page at the end of `paint()`. It is a general
+seam: any plugin decorating the overlay needs it, and without one the only alternatives are a
+`MutationObserver` or re-implementing rendering.
+
+## Wiring it
+
+```ts
+const viewer = await createViewer({
+  container, workerUrl,
+  persistence: { adapter, key },
+  collab: {
+    channel: myWebSocketPresenceChannel,
+    self: { id: currentUser.id, name: currentUser.name, colour: currentUser.colour },
+  },
+});
+```
+
+`self` is the host's, always — the library never invents an identity. `key` defaults to the PDF
+fingerprint, matching `persistencePlugin`, so both halves land in the same room without being wired
+twice. Omit `collab` entirely and nothing changes from today.
+
+`enforce: true` blocks editing a markup somebody else holds. It is off by default because a lease
+can go stale, and being hard-blocked by a lock outliving the person who took it is infuriating in a
+way that being warned is not — the same reasoning as the conflict dialog defaulting to "keep
+theirs".
 
 ## Open, and worth deciding before stage 2
 

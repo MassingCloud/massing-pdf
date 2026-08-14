@@ -24,6 +24,7 @@ import { sheetsPlugin, type SheetsOptions } from "./plugins/sheets";
 import { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 import { exportersPlugin, type ExportOptions } from "./plugins/exporters";
 import { persistencePlugin, type PersistenceOptions } from "./plugins/persistence";
+import { collabPlugin, type CollabOptions } from "./plugins/collab";
 import type { ViewerPlugin } from "./core/plugin";
 
 export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
@@ -60,6 +61,13 @@ export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
   exporters?: ExportOptions | false;
   /** Persistence is opt-in — omit it and markups live only in memory. */
   persistence?: PersistenceOptions;
+  /**
+   * Live presence and advisory locking. Off unless a channel is supplied.
+   *
+   * Separate from `persistence` deliberately: presence must never reach the durable outbound queue,
+   * or a reconnecting client replays stale cursors as current. See `adapters/presence.ts`.
+   */
+  collab?: CollabOptions;
   /** Extra plugins, installed after the standard set. */
   plugins?: ViewerPlugin[];
 }
@@ -68,7 +76,7 @@ export interface CreateViewerOptions extends Omit<ViewerOptions, "plugins"> {
 export async function createViewer(options: CreateViewerOptions): Promise<Viewer> {
   const {
     workerUrl, markup, measure, stamps, pins, list, compare, migration, search, sheets, specs,
-    historical, attachments, ocr, views, toolbar, exporters, persistence, plugins = [], ...viewerOptions
+    historical, attachments, ocr, views, toolbar, exporters, persistence, collab, plugins = [], ...viewerOptions
   } = options;
 
   if (workerUrl) configureWorker(workerUrl);
@@ -99,6 +107,8 @@ export async function createViewer(options: CreateViewerOptions): Promise<Viewer
     attachments ? attachmentsPlugin(attachments) : null,
     exporters === false ? null : exportersPlugin(exporters ?? {}),
     persistence ? persistencePlugin(persistence) : null,
+    // After persistence: presence joins the same room the save queue keys on.
+    collab ? collabPlugin(collab) : null,
     ...plugins,
     // The toolbar last, so it sees every registered tool and action.
     toolbar === false ? null : toolbarPlugin(toolbar ?? {}),

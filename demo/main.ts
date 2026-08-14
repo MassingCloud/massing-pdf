@@ -9,8 +9,8 @@
 import * as lib from "../src/index";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
-  IndexedDbAdapter, conflictsPlugin, createViewer, indexedDbAvailable, type StorageAdapter,
-  MemoryAdapter,
+  IndexedDbAdapter, MemoryPresenceChannel, conflictsPlugin, createViewer, indexedDbAvailable,
+  type StorageAdapter, MemoryAdapter,
 } from "../src/index";
 import { makeSampleSheet } from "./sample";
 
@@ -53,6 +53,13 @@ const viewer = await createViewer({
     // an example nobody can tell is wrong. `e2e/conflict.spec.ts` drives the dialog directly.
     onConflictResolve: "ask",
     onConflict: (c) => conflicts.ask(c),
+  },
+  // In-process presence: honest for a server-free demo, and it exercises every rule — grants,
+  // renewals and expiry all run here exactly as they would on a server, because this side owns the
+  // clock. What it cannot do is cross a tab, let alone a machine; that needs a real channel.
+  collab: {
+    channel: new MemoryPresenceChannel(),
+    self: { id: "demo-self", name: localStorage.getItem("mpdf.author") || "Demo reviewer" },
   },
 }).catch((e) => { fail(e); throw e; });
 

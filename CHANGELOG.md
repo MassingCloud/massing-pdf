@@ -55,6 +55,15 @@ behind a plugin kernel, to be consumed back by it.
   markup endpoints and row shape, so no server change is needed to adopt it.
 - Optimistic concurrency: every write carries the version it was based on, and a 409 surfaces both
   sides of each conflicted markup rather than a generic failure.
+- Live co-markup: `collabPlugin` shows who else is in the document and marks the markups they are
+  editing, using advisory leases taken on selection and expired by the granting side rather than
+  released by the holder — `beforeunload` does not fire on a crash or on mobile Safari. A lock never
+  touches the annotation record (`Annotation.locked` already means "signed off", and anything on the
+  record takes a version and could itself conflict), and the version check stays the authority, so a
+  stale lease degrades to the existing 409 rather than stranding a markup. Presence rides its own
+  `PresenceChannel`, never `StorageAdapter`, or `OfflineAdapter` would persist cursors and replay
+  them stale. Transport is the host's; `MemoryPresenceChannel` is for the demo and tests. See
+  [docs/realtime.md](docs/realtime.md).
 - `conflictsPlugin` presents the two versions for a reviewer to choose between, showing only the
   fields that differ. Every ambiguous exit — Escape, an optional timeout, initial focus — resolves
   to *theirs*, so a dialog dismissed unread never overwrites a colleague's edit. Replaceable: supply

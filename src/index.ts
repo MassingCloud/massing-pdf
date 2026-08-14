@@ -121,6 +121,12 @@ export { sheetsPlugin, extractSheetMeta, type SheetsOptions } from "./plugins/sh
 export { toolbarPlugin, type ToolbarOptions } from "./plugins/toolbar";
 export { persistencePlugin, type PersistenceOptions, type Conflict } from "./plugins/persistence";
 export { conflictsPlugin, type ConflictsOptions, type ConflictsPlugin } from "./plugins/conflicts";
+export { collabPlugin, type CollabOptions } from "./plugins/collab";
+export {
+  MemoryPresenceChannel, resetMemoryPresence, LEASE,
+  type PresenceChannel, type PresenceSession, type Participant, type Lease, type HeldLock,
+  type Viewing,
+} from "./adapters/presence";
 export { exportersPlugin, buildSet, applySet, type ExportOptions, type MarkupSet } from "./plugins/exporters";
 
 // ---- interchange -----------------------------------------------------------

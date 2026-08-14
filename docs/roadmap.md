@@ -104,11 +104,18 @@ Three things worth recording:
 - **Persistence is the host's.** `corrections` loads them and `onCorrect` receives the whole set
   after any change, so storing is one write of one array rather than a diff to apply.
 
-## Then — what the category expects and we lack
+## Then — what the category expects
 
-Larger, and worth arguing before starting.
+Both were larger, and both were argued before a branch. Item 5's argument is
+[realtime.md](realtime.md), and writing it shrank the item by finding a claim here that was simply
+untrue. That is the case for arguing first, made once rather than asserted.
 
-**5. Real-time co-markup sessions.** *Designed, not built — see [realtime.md](realtime.md).*
+**5. Real-time co-markup sessions.** *Stages 1 and 2 built — see [realtime.md](realtime.md).*
+
+`PresenceChannel` is the contract, `MemoryPresenceChannel` an in-process implementation for the demo
+and tests, and `collabPlugin` the participants panel, advisory leases taken on selection, and the
+mark on markups held by others. Stage 3 (where on a sheet someone is looking) is deliberately not
+built: highest traffic, lowest value, and worth doing only once the first two are in use.
 
 This entry used to say live sync was "a signal that triggers a reload: coarse". **That was wrong.**
 `subscribe` delivers a `LoadResult` and `persistencePlugin` folds it in with `store.merge`, a
@@ -177,6 +184,7 @@ server contract, and `RestAdapter` may be the more honest place for it to surfac
 | §6 Revision survival | Overlay compare, alignment (translation and uniform scale), diff clustering, auto-clouding, slip-sheet migration with a review queue and audit trail. |
 | §7 Specifications workspace | CSI section/clause parsing, clause tree, citation, requirement extraction, drawing→spec callout detection with nearest-callout auto-citation, and a per-line correction path for what the heuristics misread. |
 | §8 Issues and tasks | Pins, status, promote-to-issue, typed assignee and due date, BCF topics and `.bcfzip`. **No** forms or daily reports. |
+| Live collaboration | Presence, advisory per-markup leases with server-side expiry, and a mark on what someone else is editing. Transport is the host's — no bundled socket. **No** live stroke replay, and no OT/CRDT on geometry, both deliberately. |
 | §9 Offline-first | IndexedDB working copy, durable outbound queue, optimistic concurrency — every write carries the version it was based on, a 409 surfaces both sides, and `conflictsPlugin` presents them for a human to choose between. |
 | §10 Search | Document-wide search over sheet text, markups and the sheet register, faceted and spatially located. OCR-backed on scans when a provider is configured. |
 | §11 Historical mode | Provenance, confidence tags that visibly change how a markup reads, transcription, contrast/invert, tracing overlay. |

@@ -716,6 +716,49 @@
   border: 0;
 }
 
+/* ---- collaboration ------------------------------------------------------- */
+
+.mpdf-collab { display: flex; flex-direction: column; gap: 4px; }
+
+.mpdf-collab-person {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mpdf-fg);
+}
+.mpdf-collab-person[data-self="true"] { color: var(--mpdf-muted); }
+
+.mpdf-collab-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--mpdf-accent);
+}
+
+.mpdf-collab-lock {
+  padding: 3px 6px;
+  border-left: 2px solid var(--mpdf-warn);
+  font-size: 11px;
+  color: var(--mpdf-muted);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.mpdf-collab-lock:hover { color: var(--mpdf-fg); }
+
+/*
+ * A markup somebody else is editing.
+ *
+ * Dashed rather than a colour change: colour already carries discipline and status on a markup, and
+ * a fourth meaning stacked onto it would be unreadable — and invisible in forced-colors mode, where
+ * authored colours are replaced. A stroke pattern survives both.
+ */
+.mpdf-overlay .is-locked-by-other {
+  stroke-dasharray: 6 4;
+  opacity: 0.75;
+}
+
 /* ---- spec line inspector ------------------------------------------------- */
 
 .mpdf-spec-line {

@@ -298,6 +298,7 @@ simply hangs. These assert on real pixels and real pointer events:
 | `persistence` (unit) | the save queue, and what a rejected batch does to it: requeue on failure, conflict settling by policy, and a bodyless 409 |
 | `conflict-dialog` (unit) | what the 409 dialog does when nobody makes a deliberate choice — Escape, timeout, initial focus — plus a bodyless 409 rendering no comparison, hostile server text staying text, and the whole path wired through the save queue |
 | `a11y.spec.ts` | keyboard reachability of every list, arrow/Home/End navigation, Enter and Space activation, landmarks, `aria-pressed`/`aria-selected`, live-region announcements, and a visible focus ring |
+| `a11y-tree.spec.ts` | the computed accessibility tree: no unnamed interactive control, no control named only by a glyph, rows told apart by name, the modal named as a dialog. Catches what key-driving cannot — a control that works and announces as nothing |
 | `ocr-bench.spec.ts` | rasterise → recognise → score, against generated ground truth. Opt-in (`--project=ocr-bench`): it fetches ~12 MB of weights, so it informs a decision rather than gating a build |
 | `csp.spec.ts` | the built demo behind a strict Content-Security-Policy with no `unsafe-eval` and no inline script — a drawing must rasterise with zero violations |
 | `pen.spec.ts` | stylus drawing, pressure samples reaching the record, a palm rejected mid-stroke, touch recovering after the pen is put down, and a pen landing mid-pinch |

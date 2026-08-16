@@ -154,6 +154,9 @@ function mountIssues(
   bar.className = "mpdf-issues-bar";
   const select = document.createElement("select");
   select.className = "mpdf-select";
+  // Otherwise it reaches the accessibility tree as a bare "combobox": the selected option is its
+  // value, never its name.
+  select.setAttribute("aria-label", "Filter issues by status");
   for (const [value, label] of [["", "All statuses"], ...Object.keys(STATUS_COLORS).map((s) => [s, s])] as [string, string][]) {
     const o = document.createElement("option");
     o.value = value; o.textContent = label;

@@ -146,6 +146,7 @@ function mountIndex(host: HTMLElement, v: Viewer, options: SheetsOptions): () =>
   search.type = "search";
   search.className = "mpdf-input";
   search.placeholder = "Sheet number or title…";
+  search.setAttribute("aria-label", "Search sheets");
   const list = document.createElement("div");
   list.setAttribute("role", "listbox");
   list.setAttribute("aria-label", "Sheets");

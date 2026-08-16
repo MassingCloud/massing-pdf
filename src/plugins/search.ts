@@ -136,6 +136,7 @@ function mount(host: HTMLElement, v: Viewer, index: TextIndex): () => void {
   input.type = "search";
   input.className = "mpdf-input mpdf-search-input";
   input.placeholder = "Search sheets and markups…";
+  input.setAttribute("aria-label", "Search sheets and markups");
 
   const scopeRow = document.createElement("div");
   scopeRow.className = "mpdf-chip-group";

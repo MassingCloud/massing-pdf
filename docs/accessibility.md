@@ -13,12 +13,25 @@ review has something honest to work from rather than a claim.
 |---|---|
 | Target | WCAG 2.1 Level AA |
 | Status | **Conformant, unaudited.** Every panel, list and control is keyboard-operable and labelled, and the drawing canvas can be traversed and drawn on with a keyboard. No third party has checked this, and no screen-reader testing has been done — see *Not verified*. |
-| Verified by | `e2e/a11y.spec.ts` and `e2e/conflict.spec.ts`, run on every CI build, driving real keys against the real DOM |
+| Verified by | `e2e/a11y.spec.ts` and `e2e/conflict.spec.ts` drive real keys against the real DOM; `e2e/a11y-tree.spec.ts` asserts against the computed accessibility tree. Every CI build. |
 | Not verified | Screen-reader output on JAWS, NVDA or VoiceOver; magnification beyond 200%; a formal third-party audit |
 
-Automated tests prove the mechanics — focus moves, Enter activates, names are present. They cannot
-tell you whether what a screen reader says is *useful*. Treat the untested row as genuinely
-untested, not as a formality.
+Two different things are tested, and the difference matters.
+
+The key-driving tests prove the **mechanics**: focus moves, Enter acts, the right thing happened.
+The tree tests prove the **naming**: they read the computed accessibility tree — the same role-and-
+name pairs an assistive technology consumes — and fail when a control reaches it unnamed, or named
+only by a glyph, or when a set of rows all announce identically.
+
+That second kind catches what the first cannot, and it is not hypothetical. Introducing it found
+five controls that were fully operable by keyboard and effectively anonymous to a screen reader: the
+page-number field announcing as "spin button, 1", three unnamed `combobox`es, and a sort button
+whose entire accessible name was "↓". Every key-driven test passed on all of them, because pressing
+them worked. What was wrong was what they would be *called*.
+
+**Neither is a screen reader.** They prove a name exists and is distinct; they cannot tell you it is
+*useful*, that the reading order makes sense, or that a live-region announcement lands at a moment
+that helps. Treat the untested row as genuinely untested, not as a formality.
 
 ## What works
 

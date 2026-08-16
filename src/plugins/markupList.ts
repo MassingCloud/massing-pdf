@@ -47,16 +47,21 @@ function mount(host: HTMLElement, v: Viewer, options: MarkupListOptions): () => 
   search.type = "search";
   search.className = "mpdf-input";
   search.placeholder = "Search markups…";
+  // Named explicitly, not left to the placeholder: a placeholder-derived name disappears the moment
+  // the field has a value, so it announces as an unnamed search box exactly when it is in use.
+  search.setAttribute("aria-label", "Search markups");
 
   const controls = document.createElement("div");
   controls.className = "mpdf-list-controls";
   const sortSel = selectOf<SortKey>(
     [["created", "Newest"], ["page", "Page"], ["author", "Author"], ["kind", "Type"], ["status", "Status"], ["quantity", "Quantity"]],
     (val) => { sort = val; render(); },
+    "Sort markups by",
   );
   const groupSel = selectOf<NonNullable<MarkupListOptions["groupBy"]>>(
     [["none", "No grouping"], ["page", "By page"], ["status", "By status"], ["discipline", "By discipline"], ["author", "By author"]],
     (val) => { group = val; render(); },
+    "Group markups by",
   );
   groupSel.value = group;
   const dirBtn = document.createElement("button");
@@ -64,7 +69,12 @@ function mount(host: HTMLElement, v: Viewer, options: MarkupListOptions): () => 
   dirBtn.className = "mpdf-icon-btn";
   dirBtn.title = "Reverse order";
   dirBtn.textContent = "↓";
-  dirBtn.onclick = () => { asc = !asc; dirBtn.textContent = asc ? "↓" : "↑"; render(); };
+  // The glyph is the whole visible label, so it would also be the whole accessible name — a button
+  // announcing as "downwards arrow". The name has to say what it does *and* which way it is now,
+  // because the direction is otherwise conveyed only by which arrow is drawn.
+  const nameDir = () => { dirBtn.setAttribute("aria-label", asc ? "Sort order: ascending" : "Sort order: descending"); };
+  nameDir();
+  dirBtn.onclick = () => { asc = !asc; dirBtn.textContent = asc ? "↓" : "↑"; nameDir(); render(); };
   controls.append(sortSel, groupSel, dirBtn);
 
   const chips = document.createElement("div");
@@ -276,9 +286,16 @@ function groupKey(a: Annotation, group: MarkupListOptions["groupBy"]): string | 
   }
 }
 
-function selectOf<T extends string>(opts: [T, string][], onChange: (v: T) => void): HTMLSelectElement {
+function selectOf<T extends string>(
+  opts: [T, string][],
+  onChange: (v: T) => void,
+  label: string,
+): HTMLSelectElement {
   const s = document.createElement("select");
   s.className = "mpdf-select";
+  // A `select` takes its accessible name from a label or `aria-label`, never from its selected
+  // option — so without this it announces as "combobox" and the chosen value is the only clue.
+  s.setAttribute("aria-label", label);
   for (const [value, label] of opts) {
     const o = document.createElement("option");
     o.value = value; o.textContent = label;

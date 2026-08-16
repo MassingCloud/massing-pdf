@@ -88,6 +88,12 @@ behind a plugin kernel, to be consumed back by it.
   cursor when a tool is armed, and pan when there is nothing else to do; `Space` places a point and
   `Enter` finishes. Space and Enter are separate keys deliberately — with one doing both, a polygon
   cannot be drawn without a pointer.
+- Verified against the computed accessibility tree as well as by driving keys. Key-driving proves a
+  control *works*; the tree proves what it would be *called*. Introducing that check found five
+  controls that were fully operable and effectively anonymous to a screen reader — the page-number
+  field announcing as "spin button, 1", three unnamed comboboxes, and a sort button whose entire
+  accessible name was "↓" — plus four search boxes relying on a placeholder for their name, which
+  disappears once the field has a value. All named now.
 - Verified by driving real keys in a real browser. What is **not** covered is stated plainly in
   [docs/accessibility.md](docs/accessibility.md): nothing has been tested with a screen reader, no
   third party has audited it, and placing a markup accurately over linework remains a visual task.

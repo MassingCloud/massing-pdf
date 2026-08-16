@@ -120,6 +120,9 @@ function renderBar(bar: HTMLElement, v: Viewer, options: ToolbarOptions): void {
   pageBox.className = "mpdf-tb-page";
   const input = document.createElement("input");
   input.className = "mpdf-page-input";
+  // The number beside it is visible context, not an accessible name — on its own this reads as
+  // "spin button, 1", which says nothing about what typing into it does.
+  input.setAttribute("aria-label", "Page number");
   input.type = "number";
   input.min = "1";
   input.max = String(v.numPages || 1);

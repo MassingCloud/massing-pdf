@@ -616,6 +616,7 @@ function mountSpecs(
   search.type = "search";
   search.className = "mpdf-input";
   search.placeholder = "Section number, title or keyword…";
+  search.setAttribute("aria-label", "Search specification sections");
 
   const tabs = document.createElement("div");
   tabs.className = "mpdf-chip-group";

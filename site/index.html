@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>massing-pdf — construction drawing review engine</title>
+<meta name="description" content="Framework-agnostic PDF drawing viewer, markup, calibrated takeoff and issue pinning for AEC. XFDF and BCF interchange, offline, strict-CSP clean.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%234a8cff'/><path d='M4 11V5h3.2a1.9 1.9 0 0 1 0 3.8H5.6' stroke='white' stroke-width='1.4' fill='none'/></svg>">
+<!--
+  Deliberately one file with no external requests: no web fonts, no CDN, no analytics. The library
+  it advertises is verified to reach no third-party origin and to run under a strict CSP, and a
+  landing page that quietly did otherwise would be advertising something it does not practise.
+-->
+<style>
+  :root {
+    --bg: #16181d; --panel: #1e2128; --line: #31363f; --fg: #e8eaed;
+    --muted: #98a0ab; --accent: #4a8cff; --ok: #33d17a;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font); line-height: 1.55; -webkit-text-size-adjust: 100%;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+  header { padding: 72px 0 40px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 6px; font-size: clamp(30px, 6vw, 46px); letter-spacing: -0.02em; }
+  .tag { margin: 0 0 8px; font-size: clamp(16px, 2.6vw, 20px); color: var(--fg); }
+  .sub { margin: 0; color: var(--muted); max-width: 62ch; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+  .btn {
+    display: inline-block; padding: 11px 20px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    text-decoration: none; font-weight: 600; font-size: 15px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #08111f; }
+  .note { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  section { padding: 44px 0; border-bottom: 1px solid var(--line); }
+  h2 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  h3 { margin: 0 0 4px; font-size: 15px; }
+  .lede { margin: 0 0 24px; max-width: 68ch; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
+  .card { padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+  pre {
+    margin: 0 0 14px; padding: 14px; overflow-x: auto;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+    font-family: var(--mono); font-size: 13px; line-height: 1.5;
+  }
+  code { font-family: var(--mono); font-size: 0.93em; }
+  p code, li code { padding: 1px 5px; border-radius: 4px; background: var(--panel); }
+  ul { margin: 0; padding-left: 20px; color: var(--muted); }
+  li { margin-bottom: 6px; }
+  li strong { color: var(--fg); font-weight: 600; }
+  .links { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0; padding: 0; list-style: none; }
+  .links li { margin: 0; }
+  footer { padding: 32px 0 60px; color: var(--muted); font-size: 13px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>massing-pdf</h1>
+    <p class="tag">A construction drawing review engine you can build on.</p>
+    <p class="sub">
+      PDF viewing, AEC markup, calibrated takeoff, issue pins, revision compare and XFDF/BCF
+      interchange — behind a small plugin kernel. Framework-agnostic, offline, and clean under a
+      strict Content-Security-Policy.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="./demo/">Open the live demo</a>
+      <a class="btn" href="https://github.com/MassingCloud/massing-pdf">Source on GitHub</a>
+    </div>
+    <p class="note">
+      The demo generates its own sample drawing set in the browser and stores markups in IndexedDB.
+      Nothing is uploaded, and it keeps working with the network off.
+    </p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="lede">
+      A markup here is a <em>record</em>, not ink. Rendering is one projection of it; XFDF, BCF, CSV
+      and a flattened PDF are others — so a review survives leaving the tool it was made in.
+    </p>
+    <div class="grid">
+      <div class="card">
+        <h3>Review</h3>
+        <p>Tiled rasterisation, selectable text, pen pressure with palm rejection, and the AEC markup
+          set — clouds, callouts, stamps, dimensions.</p>
+      </div>
+      <div class="card">
+        <h3>Takeoff</h3>
+        <p>Calibrated distance, area, perimeter, angle and volume. Re-calibrating re-derives every
+          measurement on the page instead of invalidating them.</p>
+      </div>
+      <div class="card">
+        <h3>Issues</h3>
+        <p>Pins following the BCF model, with status, assignee and due date, so topics round-trip
+          with the BCF managers inside Revit, Navisworks, Solibri and Tekla.</p>
+      </div>
+      <div class="card">
+        <h3>Revisions</h3>
+        <p>Overlay compare with auto-alignment, change clustering, auto-clouding, and slip-sheet
+          migration with a review queue.</p>
+      </div>
+      <div class="card">
+        <h3>Specifications</h3>
+        <p>CSI section and clause parsing, requirement extraction, and drawing→spec callout
+          detection — with a per-line correction path for what the heuristics misread.</p>
+      </div>
+      <div class="card">
+        <h3>Collaboration</h3>
+        <p>Optimistic concurrency with both sides of a conflict carried to a dialog, plus presence
+          and advisory per-markup leases over a transport you supply.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="lede">
+      The <code>@massingcloud</code> npm scope is not claimed yet, so <code>npm i</code> does not
+      resolve it. That blocks nobody — three routes work today, and all three are verified.
+    </p>
+    <pre><code># A pinned git ref — best while iterating
+npm i "github:MassingCloud/massing-pdf#main"
+
+# Or a packed tarball — best in CI: dist/ is prebuilt, no install scripts run
+npm pack &amp;&amp; npm i ./massingcloud-pdf-viewer-0.1.0.tgz</code></pre>
+    <pre><code>import { createViewer } from "@massingcloud/pdf-viewer";
+import "@massingcloud/pdf-viewer/style.css";
+import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+
+const viewer = await createViewer({ container, workerUrl, author: "A. Reviewer" });
+await viewer.load({ url: "/sheets/A-201.pdf", name: "A-201" });</code></pre>
+    <p class="note">
+      Zero runtime dependencies. <code>pdfjs-dist</code> is a peer and <code>pdf-lib</code> an
+      optional one, so their versions stay yours — see
+      <a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/publishing.md">publishing.md</a>
+      for the third route and the one npm 11 wrinkle.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What it does not do</h2>
+    <p class="lede">
+      Stated because a capability list nobody contradicts is worth less than one that admits its
+      edges. The full version lives in
+      <a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/roadmap.md">the roadmap</a>.
+    </p>
+    <ul>
+      <li><strong>No bundled OCR engine, deliberately.</strong> Scanned sheets need a provider you
+        supply. Naming a default would put that choice in the library instead of the host.</li>
+      <li><strong>No realtime transport.</strong> Presence and locking are built; the socket is
+        yours, for the same reason.</li>
+      <li><strong>Accessibility is conformant but unaudited.</strong> Keyboard operation and
+        accessible naming are verified against the computed accessibility tree on every build — but
+        nobody has run JAWS, NVDA or VoiceOver against it, and no third party has checked it.</li>
+      <li><strong>Not yet on npm</strong>, and version <code>0.1.0</code> signals the API may still
+        move.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Documentation</h2>
+    <ul class="links">
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/architecture.md">Architecture</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/plugin-api.md">Plugin API</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/data-model.md">Data model</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/consuming.md">Consuming it</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/security.md">Security</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/accessibility.md">Accessibility</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/realtime.md">Real-time</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/browser-support.md">Browser support</a></li>
+      <li><a href="https://github.com/MassingCloud/massing-pdf/blob/main/docs/roadmap.md">Roadmap</a></li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    MIT licensed. Extracted from
+    <a href="https://github.com/ibuilder/massing">Massing</a>, and built to be consumed back by it.
+  </div>
+</footer>
+
+</body>
+</html>

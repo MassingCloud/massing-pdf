@@ -6,9 +6,17 @@ issue pinning, revision compare, and XFDF/BCF interchange — behind a small plu
 Extracted from [ibuilder/massing](https://github.com/ibuilder/massing)'s `pdfTakeoff` module and
 rebuilt as a standalone, framework-agnostic library that Massing (or anything else) can consume.
 
+**[Try the live demo →](https://massingcloud.github.io/massing-pdf/demo/)** — it generates its own
+sample drawing set in the browser, stores markups in IndexedDB, uploads nothing, and keeps working
+with the network off.
+
 ```bash
 npm install @massingcloud/pdf-viewer pdfjs-dist pdf-lib
 ```
+
+The `@massingcloud` scope is not claimed yet, so that command does not resolve. It blocks nobody —
+a pinned git ref or a packed tarball both work today, and
+[docs/publishing.md](docs/publishing.md) has all three routes.
 
 ## The idea
 

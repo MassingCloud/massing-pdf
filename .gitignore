@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-demo/
+# Assembled by the Pages workflow: landing page + built demo.
+_site/
 coverage/
 playwright-report/
 test-results/

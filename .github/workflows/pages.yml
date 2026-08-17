@@ -1,0 +1,71 @@
+# Publish the landing page and a live demo to GitHub Pages.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only the deploy job needs these; the build job runs with the default read-only token.
+permissions:
+  contents: read
+
+concurrency:
+  # Never two deploys at once, and let a newer commit supersede one still queued — but do not cancel
+  # a deploy already running, or Pages can be left serving a half-uploaded artifact.
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The demo is built with `base: "./"`, so every asset path is relative and the same bundle
+      # works at the repo sub-path Pages serves from without knowing what that path is.
+      - run: npm run demo:build
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/demo
+          cp -r dist-demo/. _site/demo/
+          cp site/index.html _site/index.html
+          # Pages runs everything through Jekyll unless told not to, and Jekyll drops files and
+          # directories beginning with an underscore. Vite does not emit any today, but a future
+          # chunk name would vanish silently rather than fail.
+          touch _site/.nojekyll
+
+      - name: Check the demo actually shipped
+        run: |
+          test -f _site/index.html
+          test -f _site/demo/index.html
+          # The pdf.js worker is bundled deliberately — the viewer must work offline and under a
+          # strict CSP, so a CDN fallback is not an option. Without it the demo renders nothing.
+          ls _site/demo/assets/*.mjs >/dev/null
+          # Nothing in the shipped bundle may reach a third-party origin. A stray CDN URL would
+          # break both the offline claim and the CSP the library is verified against.
+          ! grep -rIlE 'https?://(cdn|unpkg|jsdelivr|fonts\.googleapis)' _site \
+            || (echo "third-party origin referenced in the built site" && exit 1)
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

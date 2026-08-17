@@ -79,7 +79,7 @@
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.1.2",
     "eslint": "^10.8.0",
-    "happy-dom": "^20.11.1",
+    "happy-dom": "^20.11.2",
     "onnxruntime-web": "^1.27.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "~6.1.200",

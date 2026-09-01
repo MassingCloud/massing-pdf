@@ -53,7 +53,7 @@ jobs:
           ! grep -rIlE 'https?://(cdn|unpkg|jsdelivr|fonts\.googleapis)' _site \
             || (echo "third-party origin referenced in the built site" && exit 1)
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
